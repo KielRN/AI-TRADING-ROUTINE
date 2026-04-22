@@ -1,0 +1,412 @@
+# Research Agent Design — Swing BTC on Numeric Signals
+
+**Prepared:** 2026-04-22 (revised: source-filter v1.1)
+**Status:** Design only. Not scheduled for implementation yet.
+**Companion docs:**
+- [EVALUATION-COINBASE-BTC.md](EVALUATION-COINBASE-BTC.md) — the swing-BTC playbook (hard rules, setup types, management ladder)
+- [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) — how the bot is built and deployed
+
+This document captures the design for a custom research agent for a swing
+Bitcoin strategy on Coinbase. Build after the Coinbase adapter ships and the
+trading loop is stable.
+
+**v1 scope decision:** numeric and event-calendar signals only. No news
+scraping, no social-text ingestion, no classification pass. Every input is a
+well-defined API with free historical coverage, which makes the full pipeline
+backtestable. Text sources (news RSS, X/Twitter, Reddit) are evaluated
+separately in §2.2 — Reddit promoted to stage 2, the rest deferred with an
+explicit v2 trigger in §7.1.
+
+---
+
+## 1. Purpose
+
+Swing trade BTC-USD (holding period 1–7 days) using:
+
+- **Scheduled catalysts** — FOMC, CPI, NFP, ETF flow events, known unlocks
+- **Positioning & sentiment (numeric)** — funding rates, open interest, F&G index
+- **On-chain fundamentals** — exchange flows, whale behavior, stablecoin supply
+- **Market structure** — BTC dominance, stablecoin dominance, total market cap
+- **Macro context** — DXY, SPX, VIX, gold, 10Y yields, real yields, M2
+
+The research agent's job: twice a day, produce a structured report with a
+tactical bias (long / short / flat), a confidence score, and 0–2 specific trade
+ideas that conform to the swing playbook.
+
+**What this is NOT:** a day-trading signal generator, a price-prediction model,
+a real-time alerting system, or a narrative-awareness layer. Signals are
+evaluated on a 12-hour cadence from structured data only.
+
+---
+
+## 2. Signal inputs
+
+### 2.1 v1 stack (must-have)
+
+Every entry is a number or an event record. The LLM never originates a
+number — it receives structured context and produces thesis + rubric scores.
+This eliminates the "confidently-wrong numeric claim" failure mode and
+removes the need for a text-classification pass.
+
+| Source | Rubric slot | Role | Cost |
+|---|---|---|---|
+| **TradingEconomics** (free tier) or ForexFactory scrape | **#1 catalyst** | Scheduled macro events (FOMC / CPI / NFP / jobs) | Free |
+| **CoinGlass** (free tier) | **#2 sentiment** | Funding rates, OI, liquidations — primary sentiment proxy | Free |
+| **alternative.me** Fear & Greed | **#2 sentiment** | Contrarian extremes | Free |
+| **Farside Investors** | **#3 structure** | Spot BTC ETF daily flows (institutional lead) | Free (scrape) |
+| **Glassnode** (free tier) | **#3 structure** | Exchange net flow, stablecoin supply, whale wallets | Free tier limited; paid ~$29/mo |
+| **mempool.space** / blockchain.com | **#3 structure** | On-chain activity, fees, unconfirmed txs | Free |
+| **CoinGecko** | **#3 structure / #5 technical** | BTC dominance, total market cap, stablecoin dominance | Free (~30 req/min) |
+| **yfinance** | **#4 macro** | DXY, SPX, VIX, gold | Free |
+| **FRED** (St. Louis Fed) | **#4 macro** | 10Y yields, real yields (DFII10), M2 | Free |
+| **Coinbase / Binance public** | **#5 technical** | Price, OHLC, ground-truth OI | Free |
+
+Synthesis model is routed via **OpenRouter** (premium tier — Claude Sonnet 4.6,
+GPT-5, or Gemini 2.5 Pro; A/B per §10).
+
+### 2.2 Filter rationale — candidate sources
+
+The v1 stack was refined with a 3-must / 1-nice / 2-defer filter. The test:
+does the source fill a *distinct* rubric slot, or does it just add correlated
+noise to a slot another source already covers?
+
+| Source | Rubric slot | Verdict | Why |
+|---|---|---|---|
+| Economic calendar (TradingEconomics) | #1 catalyst | **Must** | Rubric #1 literally cannot be scored without a scheduled-event feed. The design had a hole here. |
+| CoinGecko (BTC dominance) | #3 structure / #5 technical | **Must** | BTC-D regime is a standalone swing signal not captured by any other source. One endpoint, huge value. |
+| FRED | #4 macro | **Must** | Adds real yields (DFII10) and M2, which yfinance tickers don't cover cleanly. Real-yield-vs-BTC is one of the tightest macro correlations at swing timeframe. |
+| Reddit (r/Bitcoin, r/CryptoCurrency) | #2 sentiment | **Nice-to-have — stage 2** | Genuine new dimension (retail vs. pro-tier voices), but not load-bearing. Add after v1 is running stable. |
+| X / Twitter (curated pro-tier accounts) | #2 sentiment | **Defer** | Overlaps with CoinGlass funding on the same rubric slot. High ops cost (API tier, curation, classification) for marginal lift. Revisit via v2 trigger (§7.1). |
+| News RSS (The Block + CoinDesk headlines) | #1 catalyst (unscheduled) | **Defer** | Only adds value for unscheduled-catalyst detection. Numeric *reactions* (funding flip, OI spike, flow surge) are the v1 proxy; add headlines-only feed if forward-test shows a concrete gap (§7.1). |
+
+Sources already in the v1 stack (CoinGlass, F&G, Farside, Glassnode, mempool.space,
+yfinance, Coinbase/Binance) were not re-contested — they form the data-plane
+bones of the pipeline.
+
+---
+
+## 3. Pipeline architecture
+
+```
+                    ┌────────────────────────────────────────────┐
+                    │ scripts/cli.py research --query "..."      │
+                    │ (existing CLI entry — unchanged)           │
+                    └────────────────────────┬───────────────────┘
+                                             │
+                    ┌────────────────────────▼───────────────────┐
+                    │ scripts/research.py                        │
+                    │ (swap internals; keep signature)           │
+                    └────────────────────────┬───────────────────┘
+                                             │
+                    ┌────────────────────────▼───────────────────┐
+                    │ Parallel collectors (async fetch)          │
+                    │   price + funding + OI (Binance/CoinGlass) │
+                    │   F&G + ETF flows (alt.me, Farside)        │
+                    │   on-chain (Glassnode, mempool)            │
+                    │   macro (yfinance, FRED)                   │
+                    │   structure (CoinGecko — BTC-D, MC)        │
+                    │   events (TradingEconomics)                │
+                    └────────────────────────┬───────────────────┘
+                                             │
+                                             ▼
+                    ┌────────────────────────────────────────────┐
+                    │ Synthesis (OpenRouter, premium)            │
+                    │ Claude Sonnet 4.6 / GPT-5 / Gemini 2.5 Pro │
+                    │  - receive structured numeric context      │
+                    │  - score the 5-point swing rubric          │
+                    │  - output report (see §8)                  │
+                    └────────────────────────┬───────────────────┘
+                                             │
+                                             ▼
+                    ┌────────────────────────────────────────────┐
+                    │ memory/research-reports/YYYY-MM-DD-HH.json │
+                    │ memory/daily-journal/YYYY-MM-DD.md append  │
+                    └────────────────────────────────────────────┘
+```
+
+**Cost profile:** one premium synthesis call per run (~5K input / 1K output
+tokens ≈ $0.05–0.10). Two runs/day ≈ $0.10–0.20/day, or $3–6/mo. No
+classification pass because there's no free text to classify.
+
+---
+
+## 4. Integration point in the existing codebase
+
+The architecture change is small because the existing project already
+abstracts research behind a single module.
+
+**Current contract** ([scripts/research.py](scripts/research.py)):
+
+```python
+def ask(query: str) -> ResearchResult:
+    """Returns structured result with .answer, .citations, .ok, .error."""
+```
+
+**Proposed: keep the contract, replace internals.** The routine prompts and
+CLI don't change. Swap is localized to one file.
+
+**Extend** the `ResearchResult` dataclass with swing-specific fields:
+
+```python
+@dataclass(frozen=True)
+class ResearchResult:
+    # existing fields
+    ok: bool
+    answer: str
+    citations: list[str]
+    error: str | None
+
+    # new fields for swing workflow
+    bias: Literal["long", "short", "flat"] | None
+    confidence: float | None              # 0-1
+    rubric_scores: dict[str, bool] | None # the 5-point swing rubric
+    numeric_context: dict[str, float] | None
+    catalysts: list[dict] | None          # [{when, event, expected_impact}]
+    report_path: Path | None              # full markdown report on disk
+```
+
+Older callers that only use `.answer` and `.citations` keep working.
+
+**New files to add:**
+
+```
+scripts/research/
+  __init__.py           # re-exports ask() for back-compat
+  pipeline.py           # orchestrator (parallel fetch + synthesis)
+  sources/
+    price.py            # Binance / Coinbase
+    coinglass.py        # funding + OI
+    fear_greed.py       # F&G index
+    farside.py          # ETF flows scraper
+    onchain.py          # Glassnode + mempool.space + blockchain.com
+    macro.py            # yfinance + FRED
+    coingecko.py        # BTC dominance + market structure
+    calendar.py         # economic events (TradingEconomics)
+  synthesize.py         # premium-model synthesis
+  schema.py             # dataclasses
+```
+
+The `research.py` at the top level becomes a 10-line shim that imports from
+`research/pipeline.py`. No other file in the project needs to change.
+
+---
+
+## 5. The swing rubric (replaces the FX rubric in decide.py)
+
+Score 1 point per item true at the research window. The LLM fills this in
+during synthesis.
+
+1. **Clear catalyst in next 1–5 days** — FOMC, CPI, NFP, known unlock, ETF
+   flow anomaly, scheduled macro print. Sourced from the economic calendar.
+   *Null catalyst = B-grade ceiling regardless of other points.*
+2. **Sentiment extreme OR divergence** — F&G < 25 or > 75, OR price making
+   new local high/low while funding flips the opposite way, OR open interest
+   rising against price direction.
+3. **On-chain / market structure confirmation** — Exchange net outflow
+   (accumulation) or inflow (distribution); stablecoin supply shift; whale
+   wallet movement; BTC dominance regime aligned (rising BTC-D during chop
+   supports long-BTC via rotation from alts; falling BTC-D argues against).
+   Any one of these four signals clears the item.
+4. **Macro aligned** — DXY trend supports direction; real-yields direction
+   supports direction; SPX risk-on/off regime consistent; no imminent adverse
+   macro print within 24h.
+5. **Technical level** — Entry is at a weekly or monthly S/R, not a daily
+   noise level. Swing timeframe demands HTF levels.
+
+**Grade → size:**
+- 5/5 → A-grade: 1.0% risk
+- 3–4/5 → B-grade: 0.5% risk
+- <3 → skip
+
+**Why 3/5 is the B-grade floor (not 4 like FX):** swing setups are rarer
+and noisier; demanding 4/5 leaves too many months with zero trades. 3/5 with
+mandatory catalyst (#1) preserves discipline.
+
+---
+
+## 6. Routine cadence (swing-specific)
+
+| Routine | Schedule (UTC) | Model | Job |
+|---|---|---|---|
+| research-and-plan | 00:00 and 12:00 daily | Sonnet for synth | Full pipeline; produce report + journal ideas |
+| execute | 00:30 and 12:30 daily | Haiku | Re-validate top idea, run guardrails, place order with SL+TP |
+| manage | Every 4h | Haiku | `manage_runners`: breakeven, partial TP, trail |
+| panic-check | Hourly | Haiku | Pull positions, alert if unrealized ≤ threshold |
+| daily-summary | 23:30 UTC | Haiku | 24h P&L snapshot, commit equity curve |
+| weekly-review | Sunday 00:00 UTC | Opus | Grade A–F, propose strategy/playbook edits |
+
+Compare to the intraday FX cadence: ~3× less frequent, matching the holding
+period. Panic-check exists because crypto gaps hard on weekends — even a swing
+strategy needs a fast heartbeat for risk, just not for decisions.
+
+---
+
+## 7. Hard problems flagged for later
+
+### 7.1 Unscheduled-catalyst blindspot
+
+The numeric-only stack cannot *detect* unscheduled news events (SEC
+enforcement, surprise ETF decisions, exchange failures, regulatory shocks).
+Mitigation path: the *reactions* — funding flip, OI spike, price gap,
+exchange flow surge — are all observable. The synthesis LLM is prompted to
+tag "news-driven regime" when these fire together without a scheduled
+catalyst on the calendar, and the agent flags "pause new entries until the
+next research window confirms."
+
+**v2 trigger for re-adding deferred text sources:** ">3 losses in a quarter
+attributable to missed unscheduled catalysts" — logged in weekly-review with
+a post-mortem link. When the threshold hits, add in this order:
+
+1. News RSS (The Block + CoinDesk, **headlines only**, no full-text, no classifier)
+2. X/Twitter pro-tier voices (curated list, sentiment extraction)
+
+Reddit is on the stage-2 track (§2.2) and doesn't gate on this trigger — it
+adds a distinct retail-sentiment dimension, not unscheduled-catalyst detection.
+
+### 7.2 Glassnode free-tier coverage
+
+Free tier may be too limited for the exchange-net-flow and whale-movement
+metrics rubric #3 wants. Assess after building: if rubric #3 fires usefully
+from free data, stay free. If it only fires from paid metrics, upgrade to
+Standard ($29/mo) or swap to Santiment free tier.
+
+### 7.3 The numeric stack is fully backtestable — use that
+
+Every source in §2.1 has free historical coverage (F&G full history, funding
+2018+, ETF flows daily since spot-launch, FRED decades, on-chain free-tier
+90d+, CoinGecko full history). Before building the live pipeline, run the
+rubric over the last 12 months and verify A-grade setups actually had better
+forward returns than B-grade. If not, the rubric needs tuning — not more
+signals. This is the single biggest advantage of the numeric-only design
+over a text-heavy plan.
+
+---
+
+## 8. Output contract (what the pipeline writes)
+
+Two artifacts per research run:
+
+### 8.1 Machine-readable: `memory/research-reports/YYYY-MM-DD-HH.json`
+
+```json
+{
+  "ts": "2026-04-22T12:00:00Z",
+  "bias": "long",
+  "confidence": 0.72,
+  "rubric": {
+    "catalyst": true,
+    "sentiment_extreme_or_divergence": true,
+    "onchain_or_structure": true,
+    "macro_aligned": false,
+    "technical_level": true
+  },
+  "grade": "B",
+  "numeric_context": {
+    "price": 67420.5,
+    "funding_rate_8h": 0.0009,
+    "open_interest_usd": 31200000000,
+    "fear_greed": 68,
+    "etf_net_flow_1d_usd": 142000000,
+    "btc_dominance": 54.2,
+    "dxy": 104.8,
+    "spx": 5840.2,
+    "real_yield_10y": 1.82,
+    "m2": 21030000000000
+  },
+  "catalysts": [
+    {"when": "2026-04-24T18:00Z", "event": "FOMC decision", "bias_impact": "asymmetric_upside"}
+  ],
+  "trade_ideas": [
+    {
+      "symbol": "BTC-USD",
+      "side": "buy",
+      "entry": 67200,
+      "stop": 63500,
+      "target": 74500,
+      "rr": 2.0,
+      "thesis": "...",
+      "playbook_setup": "catalyst_driven_breakout"
+    }
+  ],
+  "sources": {
+    "numeric": ["coinglass", "farside", "alternative.me", "coingecko", "fred", "yfinance", "glassnode", "coinbase"],
+    "events": ["tradingeconomics"]
+  }
+}
+```
+
+### 8.2 Human-readable: append to `memory/daily-journal/YYYY-MM-DD.md`
+
+Standard journal format, consistent with existing daily journal entries.
+
+---
+
+## 9. Suggested order of work (when this becomes active)
+
+Phase in after the Coinbase adapter is live and the bot has run for 2+ weeks
+on the simpler research path.
+
+1. **Collectors** (5–7 days). Build the `sources/*.py` files. Each is a thin
+   async client returning a dataclass. Test each in isolation.
+2. **Historical backtest** (2–3 days). Run rubric logic on 12 months of
+   history. Verify A-grade > B-grade > skip in forward returns. If it fails,
+   tune the rubric before any live work.
+3. **Synthesis layer** (2–3 days). `synthesize.py` with premium OpenRouter
+   model. A/B Sonnet vs GPT-5 vs Gemini 2.5 Pro for one week on identical context.
+4. **Rubric wiring** (1–2 days). Update `decide.py` to accept `rubric_scores`
+   and size accordingly.
+5. **Forward-test window** (4–6 weeks). Pipeline runs in shadow mode —
+   reports are written, execution still uses old path. Compare signals
+   against actual outcomes.
+6. **Cut over** — switch the execute routine to consume the new reports.
+7. **Stage 2 (Reddit), optional** (3–5 days after v1 is stable). Only add
+   if (a) v1 has run cleanly for 2+ weeks and (b) a forward-test gap points
+   at retail-sentiment as the missing dimension.
+
+Total: **~2 weeks build + 4–6 weeks shadow** for v1. Stage 2 is purely
+additive and gated on v1 performance.
+
+---
+
+## 10. Open decisions (revisit before building)
+
+- [ ] Economic calendar source: TradingEconomics free tier (structured JSON,
+      simpler) vs. ForexFactory scrape (richer/ranked events, more fragile)
+- [ ] Glassnode free tier sufficient, or jump to Standard ($29/mo), or swap
+      to Santiment free tier?
+- [ ] Synthesis model: Claude Sonnet 4.6, GPT-5, or Gemini 2.5 Pro? Run A/B
+      for one week on identical context before committing
+- [ ] Multi-asset (BTC + ETH + SOL) or BTC-only? Single-asset is simpler;
+      adding ETH is cheap because all sources cover it
+- [ ] Cooldown rule after a loss — swing losses are bigger (2R on 1% = 2% of
+      capital); a day or two sitting out may be wise
+- [ ] Stage-2 Reddit add trigger — suggested: ">2 weeks of stable v1 with no
+      signal-quality regression, AND a rubric-#2 blindspot visible in the
+      forward-test log"
+- [ ] v2 text-layer trigger — ">3 losses in a quarter attributable to missed
+      unscheduled catalysts" (see §7.1)
+
+---
+
+## 11. Why numeric-first for v1
+
+Reasons the v1 stack is numeric and event-only:
+
+1. **Numeric reliability.** A structured pipeline cannot hallucinate a
+   funding rate, an ETF flow size, or a real-yield print. LLM-sourced
+   "fundamentals" can, and the failure mode is silent — a confidently wrong
+   number reads the same as a correct one.
+2. **Backtestability.** Every input in §2.1 has free historical coverage.
+   The rubric can be validated against real outcomes before any capital is
+   risked. A text-classified pipeline with LLM summaries cannot be
+   reconstructed historically — you can't ask an LLM what it would have said
+   on 2024-03-15 given the context available that day.
+3. **Cost.** Twice-daily runs with one premium synthesis call ≈ $0.10–0.20/day.
+   A text-ingestion + classification pipeline at the same cadence is 3–10× that.
+4. **Signal coherence.** Numeric signals preserve divergences as first-class
+   features the rubric keys on (retail bullish while whales distribute;
+   price up while funding flips negative). Text summaries collapse these
+   into "mixed sentiment."
+
+Narrative awareness is the one capability forgone in v1. §7.1 documents the
+mitigation and the v2 trigger for re-adding deferred text sources.

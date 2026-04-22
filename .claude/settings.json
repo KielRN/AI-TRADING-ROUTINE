@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Write(e:/AI-TRADING-ROUTINE/**)",
+      "Edit(e:/AI-TRADING-ROUTINE/**)",
+      "Bash(mkdir *)"
+    ],
+    "deny": []
+  }
+}
