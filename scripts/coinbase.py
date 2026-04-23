@@ -23,7 +23,54 @@ try:
 except ImportError:  # cloud runner may not need it
     load_dotenv = None
 
+# Prevent this file (coinbase.py) from shadowing the coinbase-advanced-py package
+sys.path = [p for p in sys.path if os.path.abspath(p) != os.path.dirname(os.path.abspath(__file__))]
+
+import base64
+import secrets as _secrets
+
+import jwt as _jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from coinbase import jwt_generator as _jg
 from coinbase.rest import RESTClient  # coinbase-advanced-py
+
+
+def _build_jwt_compat(key_var: str, secret_var: str, uri: str | None = None) -> str:
+    """SDK v1.8.2 only signs ES256+PEM; Coinbase now issues Ed25519 CDP keys.
+    Detect Ed25519 base64 secrets and sign EdDSA; fall through to PEM/ES256."""
+    if "BEGIN" in secret_var:
+        private_key = serialization.load_pem_private_key(
+            secret_var.encode("utf-8"), password=None
+        )
+        algorithm = "ES256"
+    else:
+        raw = base64.b64decode(secret_var)
+        if len(raw) not in (32, 64):
+            raise ValueError(
+                f"Ed25519 secret must decode to 32 or 64 bytes, got {len(raw)}"
+            )
+        private_key = Ed25519PrivateKey.from_private_bytes(raw[:32])
+        algorithm = "EdDSA"
+
+    payload = {
+        "sub": key_var,
+        "iss": "cdp",
+        "nbf": int(time.time()),
+        "exp": int(time.time()) + 120,
+    }
+    if uri:
+        payload["uri"] = uri
+    return _jwt.encode(
+        payload,
+        private_key,
+        algorithm=algorithm,
+        headers={"kid": key_var, "nonce": _secrets.token_hex()},
+    )
+
+
+_jg.build_jwt = _build_jwt_compat
 
 PRODUCT = "BTC-USD"
 ROOT = Path(__file__).resolve().parent.parent
@@ -85,8 +132,7 @@ def cmd_position(args) -> None:
     btc_bal = Decimal("0")
     for a in accounts["accounts"]:
         if a["currency"] == "BTC":
-            btc_bal = Decimal(a["available_balance"]["value"])
-            break
+            btc_bal += Decimal(a["available_balance"]["value"])
     bid_ask = client.get_best_bid_ask(product_ids=[PRODUCT])
     price = Decimal(bid_ask["pricebooks"][0]["bids"][0]["price"])
     _dump({
@@ -106,7 +152,7 @@ def cmd_quote(args) -> None:
         "product_id": product,
         "bid": pb["bids"][0]["price"] if pb["bids"] else None,
         "ask": pb["asks"][0]["price"] if pb["asks"] else None,
-        "time": pb.get("time"),
+        "time": pb["time"],
     })
 
 
@@ -201,8 +247,7 @@ def cmd_close(args) -> None:
     btc_bal = Decimal("0")
     for a in accounts["accounts"]:
         if a["currency"] == "BTC":
-            btc_bal = Decimal(a["available_balance"]["value"])
-            break
+            btc_bal += Decimal(a["available_balance"]["value"])
     if btc_bal <= Decimal("0.00001"):
         _dump({"closed": False, "reason": "no BTC position"})
         return
