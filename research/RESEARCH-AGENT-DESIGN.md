@@ -1,7 +1,12 @@
 # Research Agent Design — Swing BTC on Numeric Signals
 
-**Prepared:** 2026-04-22 (revised: source-filter v1.1)
-**Status:** Design only. Not scheduled for implementation yet.
+**Prepared:** 2026-04-22 (revised: 2026-04-23 single-vendor-simplification v1.3)
+**Status:** **SUPERSEDED 2026-04-24** by [RESEARCH-AGENT-DESIGN-V2.md](RESEARCH-AGENT-DESIGN-V2.md).
+Chartinspect Pro verification (see [RESEARCH-DATA-STATUS.md](RESEARCH-DATA-STATUS.md))
+showed the single-vendor thesis broken — ETF/exchange balances and dominance
+endpoints frozen. v2 replaces broken slices with free public sources and
+collapses the Python orchestrator into CLI wrappers composed by the routine.
+Retained here for history; do not build against v1.
 **Companion docs:**
 - [EVALUATION-COINBASE-BTC.md](EVALUATION-COINBASE-BTC.md) — the swing-BTC playbook (hard rules, setup types, management ladder)
 - [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) — how the bot is built and deployed
@@ -10,12 +15,12 @@ This document captures the design for a custom research agent for a swing
 Bitcoin strategy on Coinbase. Build after the Coinbase adapter ships and the
 trading loop is stable.
 
-**v1 scope decision:** numeric and event-calendar signals only. No news
-scraping, no social-text ingestion, no classification pass. Every input is a
-well-defined API with free historical coverage, which makes the full pipeline
-backtestable. Text sources (news RSS, X/Twitter, Reddit) are evaluated
-separately in §2.2 — Reddit promoted to stage 2, the rest deferred with an
-explicit v2 trigger in §7.1.
+**v1 scope decision:** numeric and event-calendar signals plus raw-text sentiment
+from YouTube analyst channels. Numeric sources feed the rubric as numbers.
+YouTube video titles are passed as raw text directly to the synthesis model
+(OpenRouter or HuggingFace) — the synthesis call interprets sentiment and scores
+the rubric in a single pass. No separate classification step. Text sources
+(news RSS, X/Twitter, Reddit) are deferred with an explicit v2 trigger in §7.1.
 
 ---
 
@@ -51,11 +56,10 @@ removes the need for a text-classification pass.
 | Source | Rubric slot | Role | Cost |
 |---|---|---|---|
 | **TradingEconomics** (free tier) or ForexFactory scrape | **#1 catalyst** | Scheduled macro events (FOMC / CPI / NFP / jobs) | Free |
-| **CoinGlass** (free tier) | **#2 sentiment** | Funding rates, OI, liquidations — primary sentiment proxy | Free |
+| **Chartinspect Pro** | **#2 sentiment + #3 structure** | Funding rates, OI, liquidations, on-chain flows, stablecoin supply, ETF flows per issuer — one vendor covers derivatives + on-chain + ETF | $24/mo |
 | **alternative.me** Fear & Greed | **#2 sentiment** | Contrarian extremes | Free |
-| **Farside Investors** | **#3 structure** | Spot BTC ETF daily flows (institutional lead) | Free (scrape) |
-| **Glassnode** (free tier) | **#3 structure** | Exchange net flow, stablecoin supply, whale wallets | Free tier limited; paid ~$29/mo |
-| **mempool.space** / blockchain.com | **#3 structure** | On-chain activity, fees, unconfirmed txs | Free |
+| **YouTube Data API v3** (top BTC analyst channels) | **#2 sentiment** | Analyst directional bias — last 5 video titles per channel passed as raw text to synthesis LLM | Free (10K units/day) |
+| **mempool.space** / blockchain.com | **#3 structure** (optional) | On-chain activity, fees, unconfirmed txs — not rubric-load-bearing | Free |
 | **CoinGecko** | **#3 structure / #5 technical** | BTC dominance, total market cap, stablecoin dominance | Free (~30 req/min) |
 | **yfinance** | **#4 macro** | DXY, SPX, VIX, gold | Free |
 | **FRED** (St. Louis Fed) | **#4 macro** | 10Y yields, real yields (DFII10), M2 | Free |
@@ -75,12 +79,14 @@ noise to a slot another source already covers?
 | Economic calendar (TradingEconomics) | #1 catalyst | **Must** | Rubric #1 literally cannot be scored without a scheduled-event feed. The design had a hole here. |
 | CoinGecko (BTC dominance) | #3 structure / #5 technical | **Must** | BTC-D regime is a standalone swing signal not captured by any other source. One endpoint, huge value. |
 | FRED | #4 macro | **Must** | Adds real yields (DFII10) and M2, which yfinance tickers don't cover cleanly. Real-yield-vs-BTC is one of the tightest macro correlations at swing timeframe. |
-| Reddit (r/Bitcoin, r/CryptoCurrency) | #2 sentiment | **Nice-to-have — stage 2** | Genuine new dimension (retail vs. pro-tier voices), but not load-bearing. Add after v1 is running stable. |
-| X / Twitter (curated pro-tier accounts) | #2 sentiment | **Defer** | Overlaps with CoinGlass funding on the same rubric slot. High ops cost (API tier, curation, classification) for marginal lift. Revisit via v2 trigger (§7.1). |
+| Reddit | #2 sentiment | **Defer** | Reddit API terms changed in 2026; access complexity outweighs signal value at current stage. Revisit if v2 text-layer trigger fires (§7.1). |
+| YouTube (top BTC analyst channels) | #2 sentiment | **Must — v1** | Analyst directional bias 24–48h before the market moves. Last 5 video titles per channel from Benjamin Cowen, Coin Bureau, InvestAnswers, Crypto Banter, Plan B, Raoul Pal. Passed raw to synthesis LLM. |
+| X / Twitter (curated pro-tier accounts) | #2 sentiment | **Defer** | Overlaps with YouTube analyst signal on the same rubric slot. High ops cost (API tier, curation, classification) for marginal lift. Revisit via v2 trigger (§7.1). |
+| CoinGlass | #2 sentiment / #3 structure | **Reject** | No free tier as of 2026-04. Chartinspect Pro covers the same surface (per-venue funding, OI, liquidations, ETF flows) at $24/mo. No reason to pay twice. |
 | News RSS (The Block + CoinDesk headlines) | #1 catalyst (unscheduled) | **Defer** | Only adds value for unscheduled-catalyst detection. Numeric *reactions* (funding flip, OI spike, flow surge) are the v1 proxy; add headlines-only feed if forward-test shows a concrete gap (§7.1). |
 
-Sources already in the v1 stack (CoinGlass, F&G, Farside, Glassnode, mempool.space,
-yfinance, Coinbase/Binance) were not re-contested — they form the data-plane
+Sources already in the v1 stack (Chartinspect, F&G, CoinGecko, yfinance, FRED,
+mempool.space, Coinbase/Binance) were not re-contested — they form the data-plane
 bones of the pipeline.
 
 ---
@@ -100,12 +106,15 @@ bones of the pipeline.
                                              │
                     ┌────────────────────────▼───────────────────┐
                     │ Parallel collectors (async fetch)          │
-                    │   price + funding + OI (Binance/CoinGlass) │
-                    │   F&G + ETF flows (alt.me, Farside)        │
-                    │   on-chain (Glassnode, mempool)            │
-                    │   macro (yfinance, FRED)                   │
+                    │   price (Coinbase/Binance public)          │
+                    │   funding + OI + on-chain + ETF            │
+                    │     (Chartinspect Pro — one vendor)        │
+                    │   F&G (alternative.me)                     │
+                    │   youtube (Data API v3 → raw titles)       │
                     │   structure (CoinGecko — BTC-D, MC)        │
+                    │   macro (yfinance, FRED)                   │
                     │   events (TradingEconomics)                │
+                    │   mempool (mempool.space, optional)        │
                     └────────────────────────┬───────────────────┘
                                              │
                                              ▼
@@ -124,9 +133,11 @@ bones of the pipeline.
                     └────────────────────────────────────────────┘
 ```
 
-**Cost profile:** one premium synthesis call per run (~5K input / 1K output
-tokens ≈ $0.05–0.10). Two runs/day ≈ $0.10–0.20/day, or $3–6/mo. No
-classification pass because there's no free text to classify.
+**Cost profile:** one synthesis call per run — receives numeric context plus raw
+Reddit titles (~500 tokens) and YouTube titles (~200 tokens). Total input grows
+to ~6–7K tokens (~$0.06–0.12/call). Two runs/day ≈ $0.12–0.24/day LLM spend.
+Add Chartinspect Pro at $24/mo → **$27–31/mo all-in**. Reddit and YouTube API
+calls are free within tier limits. No separate classification pass.
 
 ---
 
@@ -174,15 +185,16 @@ scripts/research/
   __init__.py           # re-exports ask() for back-compat
   pipeline.py           # orchestrator (parallel fetch + synthesis)
   sources/
-    price.py            # Binance / Coinbase
-    coinglass.py        # funding + OI
-    fear_greed.py       # F&G index
-    farside.py          # ETF flows scraper
-    onchain.py          # Glassnode + mempool.space + blockchain.com
-    macro.py            # yfinance + FRED
+    price.py            # Binance / Coinbase public
+    chartinspect.py     # funding + OI + liquidations + on-chain + ETF flows
+    fear_greed.py       # F&G index (alternative.me)
+    reddit.py           # PRAW — r/BitcoinMarkets, r/Bitcoin, r/CryptoCurrency
+    youtube.py          # YouTube Data API v3 — top BTC analyst channels
     coingecko.py        # BTC dominance + market structure
+    macro.py            # yfinance + FRED
     calendar.py         # economic events (TradingEconomics)
-  synthesize.py         # premium-model synthesis
+    mempool.py          # mempool.space + blockchain.com (optional)
+  synthesize.py         # synthesis (OpenRouter or HuggingFace) — receives numeric context + raw Reddit/YouTube titles
   schema.py             # dataclasses
 ```
 
@@ -263,14 +275,7 @@ a post-mortem link. When the threshold hits, add in this order:
 Reddit is on the stage-2 track (§2.2) and doesn't gate on this trigger — it
 adds a distinct retail-sentiment dimension, not unscheduled-catalyst detection.
 
-### 7.2 Glassnode free-tier coverage
-
-Free tier may be too limited for the exchange-net-flow and whale-movement
-metrics rubric #3 wants. Assess after building: if rubric #3 fires usefully
-from free data, stay free. If it only fires from paid metrics, upgrade to
-Standard ($29/mo) or swap to Santiment free tier.
-
-### 7.3 The numeric stack is fully backtestable — use that
+### 7.2 The numeric stack is fully backtestable — use that
 
 Every source in §2.1 has free historical coverage (F&G full history, funding
 2018+, ETF flows daily since spot-launch, FRED decades, on-chain free-tier
@@ -329,7 +334,7 @@ Two artifacts per research run:
     }
   ],
   "sources": {
-    "numeric": ["coinglass", "farside", "alternative.me", "coingecko", "fred", "yfinance", "glassnode", "coinbase"],
+    "numeric": ["chartinspect", "alternative.me", "coingecko", "yfinance", "fred", "coinbase"],
     "events": ["tradingeconomics"]
   }
 }
@@ -347,7 +352,13 @@ Phase in after the Coinbase adapter is live and the bot has run for 2+ weeks
 on the simpler research path.
 
 1. **Collectors** (5–7 days). Build the `sources/*.py` files. Each is a thin
-   async client returning a dataclass. Test each in isolation.
+   async client returning a dataclass. Test each in isolation. **First task:
+   verify Chartinspect Pro covers per-venue funding (Binance, OKX), per-issuer
+   ETF flows (IBIT/FBTC/etc.), and ≥12-month history.** Also wire `reddit.py`
+   (PRAW) and `youtube.py` (Data API v3) — both need credentials in `.env`
+   before testing (see §2.1). Confirm YouTube API key is enabled in GCP project
+   `gen-lang-client-0675309660`. If a specific metric has a gap, surface it in
+   the next design pass — do not pre-name a second vendor speculatively.
 2. **Historical backtest** (2–3 days). Run rubric logic on 12 months of
    history. Verify A-grade > B-grade > skip in forward returns. If it fails,
    tune the rubric before any live work.
@@ -372,17 +383,20 @@ additive and gated on v1 performance.
 
 - [ ] Economic calendar source: TradingEconomics free tier (structured JSON,
       simpler) vs. ForexFactory scrape (richer/ranked events, more fragile)
-- [ ] Glassnode free tier sufficient, or jump to Standard ($29/mo), or swap
-      to Santiment free tier?
+- [ ] Chartinspect Pro coverage — verify during Phase 1: per-venue funding
+      rates? ETF flows per issuer? ≥12-month history? If gaps appear, decide
+      then (don't pre-name a fallback vendor in this design).
 - [ ] Synthesis model: Claude Sonnet 4.6, GPT-5, or Gemini 2.5 Pro? Run A/B
       for one week on identical context before committing
 - [ ] Multi-asset (BTC + ETH + SOL) or BTC-only? Single-asset is simpler;
       adding ETH is cheap because all sources cover it
 - [ ] Cooldown rule after a loss — swing losses are bigger (2R on 1% = 2% of
       capital); a day or two sitting out may be wise
-- [ ] Stage-2 Reddit add trigger — suggested: ">2 weeks of stable v1 with no
-      signal-quality regression, AND a rubric-#2 blindspot visible in the
-      forward-test log"
+- [x] Reddit — deferred. API terms changed 2026; revisit at v2 text-layer trigger.
+- [x] YouTube — promoted to v1 must-have. Channels: Benjamin Cowen, Coin Bureau,
+      InvestAnswers, Crypto Banter, Plan B, Raoul Pal. Same Haiku → numeric flow.
+- [ ] YouTube channel IDs — verify handles map to correct channel IDs during
+      Phase 1 implementation (don't hardcode stale IDs in design).
 - [ ] v2 text-layer trigger — ">3 losses in a quarter attributable to missed
       unscheduled catalysts" (see §7.1)
 
@@ -396,7 +410,8 @@ Reasons the v1 stack is numeric and event-only:
    funding rate, an ETF flow size, or a real-yield print. LLM-sourced
    "fundamentals" can, and the failure mode is silent — a confidently wrong
    number reads the same as a correct one.
-2. **Backtestability.** Every input in §2.1 has free historical coverage.
+2. **Backtestability.** Every input in §2.1 has historical coverage
+   (Chartinspect serves history via the Pro subscription; other sources free).
    The rubric can be validated against real outcomes before any capital is
    risked. A text-classified pipeline with LLM summaries cannot be
    reconstructed historically — you can't ask an LLM what it would have said

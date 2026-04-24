@@ -33,7 +33,7 @@ STEP 3 — Research via WebSearch. For each query below, run:
 - "BTC dominance and total crypto market cap latest"
 - "BTC-specific news last 24h regulation SEC ETF exchange failure"
 
-STEP 4 — Score the 5-point swing rubric per RESEARCH-AGENT-DESIGN.md §5.
+STEP 4 — Score the 5-point swing rubric per research/RESEARCH-AGENT-DESIGN-V2.md §5.
 Each item scored boolean:
 1. catalyst: clear scheduled catalyst in next 1–5 days?
 2. sentiment_extreme_or_divergence: F&G extreme OR price/funding divergence OR OI-vs-price divergence?
@@ -44,8 +44,8 @@ Grade: 5/5 = A; 3–4/5 = B; <3 = skip.
 Catalyst=false caps at B regardless.
 
 STEP 5 — Write JSON report to memory/research-reports/$DATE-$HOUR.json
-matching the schema in RESEARCH-AGENT-DESIGN.md §8.1. Include 0–2 trade
-ideas, each with playbook_setup matching EVALUATION-COINBASE-BTC.md §3.
+matching the schema in research/RESEARCH-AGENT-DESIGN-V2.md §8. Include 0–2 trade
+ideas, each with playbook_setup matching memory/TRADING-STRATEGY.md §3.
 
 STEP 6 — Append human-readable summary to memory/RESEARCH-LOG.md:
 ### $DATE $HOUR:00 UTC — Research

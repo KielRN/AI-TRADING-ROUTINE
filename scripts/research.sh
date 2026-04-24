@@ -4,7 +4,7 @@
 # the parent doc's fallback contract.
 #
 # V2 will replace the internals with the numeric pipeline defined in
-# RESEARCH-AGENT-DESIGN.md (§3). The wrapper contract stays the same so no
+# research/RESEARCH-AGENT-DESIGN.md (§3). The wrapper contract stays the same so no
 # routine prompts need editing.
 #
 # Usage: bash scripts/research.sh "<query>"

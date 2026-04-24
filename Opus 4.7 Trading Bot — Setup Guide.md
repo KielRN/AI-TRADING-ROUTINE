@@ -20,7 +20,7 @@ repo.
 
 **Adapted from:** Nate Herk's original Alpaca/stocks setup guide.
 **Strategy playbook:** [EVALUATION-COINBASE-BTC.md](EVALUATION-COINBASE-BTC.md)
-**Research design:** [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md)
+**Research design:** [research/RESEARCH-AGENT-DESIGN.md](research/RESEARCH-AGENT-DESIGN.md)
 
 ---
 
@@ -104,7 +104,7 @@ Three properties drove every decision:
   a dedicated bot (not the TxAI inbound assistant).
 - **Research agent, not Perplexity** → v1 uses Claude's native WebSearch via
   the `scripts/research.sh` wrapper contract; v2 swaps in the numeric
-  pipeline per [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md).
+  pipeline per [research/RESEARCH-AGENT-DESIGN.md](research/RESEARCH-AGENT-DESIGN.md).
 
 ---
 
@@ -295,7 +295,7 @@ Wraps the research backend. **v1 is a stub.** It exits with code 3 to signal
 "no backend configured — use native WebSearch," matching the parent doc's
 fallback contract. This preserves the wrapper shape while deferring the
 numeric pipeline to v2 (per
-[RESEARCH-AGENT-DESIGN.md §9](RESEARCH-AGENT-DESIGN.md#9-suggested-order-of-work-when-this-becomes-active)).
+[research/RESEARCH-AGENT-DESIGN.md §9](research/RESEARCH-AGENT-DESIGN.md#9-suggested-order-of-work-when-this-becomes-active)).
 
 ```bash
 bash scripts/research.sh "<query>"
@@ -342,10 +342,10 @@ differences are what each one reads and writes. All times are UTC.
    - "BTC dominance and total crypto market cap latest"
    - "Any BTC-specific news last 24h regulation SEC ETF exchange"
 4. Score the 5-point swing rubric (per
-   [RESEARCH-AGENT-DESIGN.md §5](RESEARCH-AGENT-DESIGN.md#5-the-swing-rubric-replaces-the-fx-rubric-in-decidepy)).
+   [research/RESEARCH-AGENT-DESIGN.md §5](research/RESEARCH-AGENT-DESIGN.md#5-the-swing-rubric-replaces-the-fx-rubric-in-decidepy)).
 5. Write the JSON report to
    `memory/research-reports/YYYY-MM-DD-HH.json` (schema:
-   [RESEARCH-AGENT-DESIGN.md §8.1](RESEARCH-AGENT-DESIGN.md#81-machine-readable-memoryresearch-reportsyyyy-mm-dd-hhjson)).
+   [research/RESEARCH-AGENT-DESIGN.md §8.1](research/RESEARCH-AGENT-DESIGN.md#81-machine-readable-memoryresearch-reportsyyyy-mm-dd-hhjson)).
 6. Append a dated human-readable summary to `memory/RESEARCH-LOG.md`
    (account snapshot, market context, rubric scores, trade idea(s),
    decision: TRADE or HOLD).
@@ -1164,7 +1164,7 @@ python-dotenv>=1.0.0
 # the parent doc's fallback contract.
 #
 # V2 will replace the internals with the numeric pipeline defined in
-# RESEARCH-AGENT-DESIGN.md (§3). The wrapper contract stays the same so no
+# research/RESEARCH-AGENT-DESIGN.md (§3). The wrapper contract stays the same so no
 # routine prompts need editing.
 #
 # Usage: bash scripts/research.sh "<query>"
@@ -1300,7 +1300,7 @@ STEP 3 — Research via WebSearch. For each query below, run:
 - "BTC dominance and total crypto market cap latest"
 - "BTC-specific news last 24h regulation SEC ETF exchange failure"
 
-STEP 4 — Score the 5-point swing rubric per RESEARCH-AGENT-DESIGN.md §5.
+STEP 4 — Score the 5-point swing rubric per research/RESEARCH-AGENT-DESIGN.md §5.
 Each item scored boolean:
 1. catalyst: clear scheduled catalyst in next 1–5 days?
 2. sentiment_extreme_or_divergence: F&G extreme OR price/funding divergence OR OI-vs-price divergence?
@@ -1311,7 +1311,7 @@ Grade: 5/5 = A; 3–4/5 = B; <3 = skip.
 Catalyst=false caps at B regardless.
 
 STEP 5 — Write JSON report to memory/research-reports/$DATE-$HOUR.json
-matching the schema in RESEARCH-AGENT-DESIGN.md §8.1. Include 0–2 trade
+matching the schema in research/RESEARCH-AGENT-DESIGN.md §8.1. Include 0–2 trade
 ideas, each with playbook_setup matching EVALUATION-COINBASE-BTC.md §3.
 
 STEP 6 — Append human-readable summary to memory/RESEARCH-LOG.md:
@@ -1903,7 +1903,7 @@ project, do it in this order:
 
 1. Open Claude Code in an empty directory you want to turn into the repo.
 2. Paste this document (plus EVALUATION-COINBASE-BTC.md and
-   RESEARCH-AGENT-DESIGN.md) into the chat and ask: "Set up this project
+   research/RESEARCH-AGENT-DESIGN.md) into the chat and ask: "Set up this project
    per the guide. Start with Part 10's replication checklist. Ask me for
    credentials only when needed."
 3. Claude will create the directory structure, populate the scripts and
@@ -1918,4 +1918,4 @@ project, do it in this order:
 
 This document is self-contained. Everything the agent needs to know is
 here, in [EVALUATION-COINBASE-BTC.md](EVALUATION-COINBASE-BTC.md), and in
-[RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md). Good luck.
+[research/RESEARCH-AGENT-DESIGN.md](research/RESEARCH-AGENT-DESIGN.md). Good luck.

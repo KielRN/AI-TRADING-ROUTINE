@@ -4,7 +4,7 @@
 **Status:** Strategy playbook. This is the rulebook the bot reads every session.
 **Companion docs:**
 - [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) — how the bot is built and deployed
-- [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md) — the 5-point rubric that grades each setup
+- [../research/RESEARCH-AGENT-DESIGN.md](../research/RESEARCH-AGENT-DESIGN.md) — the 5-point rubric that grades each setup
 
 This document defines the trading rules for a swing BTC/USD bot running on
 Coinbase Advanced Trade. The rules are non-negotiable. Every workflow in the
@@ -52,7 +52,7 @@ Alpaca setup.
 
 ### Risk per trade
 6. **Risk is a function of rubric grade**, set by the research agent
-   ([RESEARCH-AGENT-DESIGN.md §5](RESEARCH-AGENT-DESIGN.md#5-the-swing-rubric-replaces-the-fx-rubric-in-decidepy)):
+   ([../research/RESEARCH-AGENT-DESIGN.md §5](../research/RESEARCH-AGENT-DESIGN.md#5-the-swing-rubric-replaces-the-fx-rubric-in-decidepy)):
    - **A-grade (5/5):** 1.0% of account equity at risk
    - **B-grade (3–4/5):** 0.5% of account equity at risk
    - **< 3/5:** skip. No trade.
@@ -115,7 +115,7 @@ Alpaca setup.
 
 Every rubric A- or B-grade trade must match one of these four documented
 setups. The research agent tags each trade idea with a `playbook_setup` field
-(see [RESEARCH-AGENT-DESIGN.md §8.1](RESEARCH-AGENT-DESIGN.md#81-machine-readable-memoryresearch-reportsyyyy-mm-dd-hhjson)).
+(see [../research/RESEARCH-AGENT-DESIGN.md §8.1](../research/RESEARCH-AGENT-DESIGN.md#81-machine-readable-memoryresearch-reportsyyyy-mm-dd-hhjson)).
 If a trade idea doesn't match one of these, it's skipped regardless of grade.
 
 ### 3.1 `catalyst_driven_breakout`
@@ -252,7 +252,7 @@ Every Sunday 00:00 UTC the `weekly-review` routine grades the week.
 
 ## 7. Integration with the research agent
 
-The research agent ([RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md))
+The research agent ([../research/RESEARCH-AGENT-DESIGN.md](../research/RESEARCH-AGENT-DESIGN.md))
 writes two artifacts twice a day: a JSON report and a journal entry. The
 execute workflow consumes the JSON:
 
@@ -353,6 +353,6 @@ against the reason first.
 ## 12. Cross-reference
 
 - **How trades are executed:** [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) Part 5 (workflows)
-- **How setups are graded:** [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md) §5 (rubric)
+- **How setups are graded:** [../research/RESEARCH-AGENT-DESIGN.md](../research/RESEARCH-AGENT-DESIGN.md) §5 (rubric)
 - **Which APIs the bot calls:** [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) Part 4 (wrapper scripts)
 - **Memory files the bot reads:** `memory/TRADING-STRATEGY.md` (this file, canonicalized), `memory/TRADE-LOG.md`, `memory/RESEARCH-LOG.md`, `memory/WEEKLY-REVIEW.md`
