@@ -1,0 +1,113 @@
+{
+  "ts": "2026-04-24T18:30:00Z",
+  "date": "2026-04-24",
+  "hour": "18",
+  "bias": "long",
+  "confidence": "medium",
+  "rubric": {
+    "catalyst": true,
+    "sentiment_extreme_or_divergence": false,
+    "onchain_or_structure": true,
+    "macro_aligned": true,
+    "technical_level": false,
+    "score": 3,
+    "grade": "B",
+    "notes": "catalyst=FOMC Apr 28-29 (4 days). sentiment=false: F&G=60 greed (not extreme ≥80/≤20); funding mildly positive aligned with price, no divergence. onchain=true: BTC-D 60.63% (above 60% first time in 2026, rising); $2.1B ETF inflows 8 consecutive days; MSTR bought 34,164 BTC. macro=true: DXY ~98.7 (multi-month lows), SEC dropped enforcement regime, GENIUS Act law, no adverse 24h print. technical=false: candles.py not yet built; scoring false conservatively per v2 §5 fallback rule — no HTF S/R data available."
+  },
+  "numeric_context": {
+    "btc_price_usd": 77600,
+    "btc_bid": 77600.00,
+    "btc_ask": 77600.01,
+    "btc_24h_futures_volume_usd_bn": 66.1,
+    "open_interest_usd_bn": 53.87,
+    "funding_rate_description": "mild positive (longs paying small premium)",
+    "fear_greed_index": 60,
+    "fear_greed_label": "Greed",
+    "fear_greed_30d_low": 11,
+    "fear_greed_30d_low_note": "April 8 low; 59 consecutive days below 15 ended recently",
+    "btc_dominance_pct": 60.63,
+    "total_crypto_market_cap_usd_tn": 2.68,
+    "dxy": 98.7,
+    "real_yield_10y_dfii10": null,
+    "etf_net_flow_8d_usd_bn": 2.1,
+    "etf_aum_usd_bn": 102,
+    "etf_note": "8 consecutive inflow days; BlackRock IBIT ~91% of recent flows; Goldman Sachs filing new ETF",
+    "btc_weekly_support_levels_usd": [73180, 70000],
+    "btc_weekly_resistance_usd": [80000]
+  },
+  "catalysts": [
+    {
+      "event": "FOMC rate decision",
+      "date": "2026-04-29",
+      "days_away": 5,
+      "directional_bias": "neutral-to-bullish — DXY already weak, market pricing hold-or-cut; dovish tilt bullish BTC"
+    },
+    {
+      "event": "GDP advance estimate Q1 2026",
+      "date": "2026-04-30",
+      "days_away": 6,
+      "directional_bias": "uncertain — weak GDP could reinforce rate cut expectations"
+    }
+  ],
+  "account_state": {
+    "equity_usd": 4162.63,
+    "usd_cash": 15.01,
+    "btc_held": 0.05342287,
+    "btc_value_usd": 4146.05,
+    "starting_equity_usd": 3000.00,
+    "phase_pnl_usd": 1162.63,
+    "phase_pnl_pct": 38.75,
+    "position_open": true,
+    "stop_order_placed": false,
+    "trade_log_entry_exists": false,
+    "drawdown_halt": false,
+    "cooldown_active": false,
+    "rule_violations": [
+      "CRITICAL §2.9: Open position (0.05342287 BTC) with NO stop order in Coinbase. Stop must be placed immediately.",
+      "CRITICAL §4: No entry checklist found in TRADE-LOG.md. Trade log shows 'No positions yet.' Position entry was never documented."
+    ]
+  },
+  "trade_ideas": [],
+  "decision": "HOLD — position already open (0.05342287 BTC). No new entries while existing position is undocumented and stop-less. URGENT: execute routine must (1) place STOP_LIMIT GTC sell order at technical stop below $73,180, (2) reconstruct TRADE-LOG.md entry from account data.",
+  "data_health": {
+    "fetched_at": "2026-04-24T18:30:00Z",
+    "missing_slots": [
+      "chartinspect_funding",
+      "chartinspect_open_interest",
+      "chartinspect_whale_flows",
+      "fng_api",
+      "coingecko_global",
+      "defillama_stablecoins",
+      "fred_rates",
+      "yfinance_quotes",
+      "binance_funding",
+      "okx_funding",
+      "candles_htf_sr"
+    ],
+    "websearch_gaps": [
+      "dfii10_specific_value",
+      "specific_24h_etf_flows",
+      "binance_perp_funding_rate_numeric",
+      "exchange_net_btc_flow_7d"
+    ],
+    "stale_warnings": [
+      "All v2 Phase 1 wrappers not yet built; research based on WebSearch synthesis only",
+      "research.sh exited 3 (v1 stub) — WebSearch substituted per routine instructions"
+    ],
+    "sources": [
+      "https://www.coinglass.com/currencies/BTC/futures",
+      "https://www.lambdafin.com/articles/crypto-funding-rates-april-2026",
+      "https://www.coindesk.com/markets/2026/04/24/bitcoin-etfs-just-pulled-usd2-billion-in-8-days-while-short-term-holders-quietly-started-selling",
+      "https://247wallst.com/investing/2026/04/24/bitcoin-news-bitcoin-etfs-just-turned-positive-across-every-timeframe/",
+      "https://themarketperiodical.com/2026/04/23/bitcoin-price-prediction-as-crypto-fear-and-greed-index-turns-green/",
+      "https://hedgeco.net/news/04/2026/crypto-fear-greed-index-plummets-to-11.html",
+      "https://u.today/bitcoin-dominance-surpasses-60-first-time-in-2026-as-btc-nears-80k",
+      "https://www.tv-hub.org/guide/bitcoin-dominance",
+      "https://blog.mexc.com/finance/federal-reserve-meeting-dates-full-2026-fomc-calendar-and-policy-schedule/",
+      "https://www.spotedcrypto.com/crypto-regulation-2026-genius-act-mica-sec/",
+      "https://phemex.com/blogs/sec-ruling-crypto-etfs-staking",
+      "https://longforecast.com/dollar-index",
+      "https://intellectia.ai/blog/bitcoin-price-analysis-april-2026"
+    ]
+  }
+}

@@ -2,64 +2,82 @@
 description: Run the manage workflow locally (no commit/push)
 ---
 
-You are an autonomous BTC swing bot. SPOT BTC/USD ONLY. Ultra-concise.
+You are an autonomous BTC accumulation bot. SPOT BTC/USD ONLY. Ultra-concise.
 
-Resolve timestamps via:
+Under v2, "manage" = monitoring the active cycle's lifecycle: detect
+sell-trigger fill, enforce the 72h re-entry time cap, enforce weekend
+defense, close on thesis break. There is no ladder of
+partials/trailing stops.
 DATE=$(date -u +%Y-%m-%d)
 HOUR=$(date -u +%H)
-DOW=$(date -u +%u)  # 1=Mon ... 7=Sun. Saturday=6.
+NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+DOW=$(date -u +%u)   # 1=Mon ... 7=Sun. Saturday=6.
 
 STEP 1 — Read memory:
-- memory/TRADING-STRATEGY.md (management ladder rules)
-- tail of memory/TRADE-LOG.md (find OPEN trade: entry, initial_stop,
-  target, R-value, partials fired so far)
+- memory/TRADING-STRATEGY.md
+- tail of memory/TRADE-LOG.md — find OPEN cycle: sell_order_id,
+  rebuy_order_id, sell_trigger_price, rebuy_limit_price,
+  worst_case_rebuy_price, btc_to_sell, cycle_opened_at_utc,
+  72h_time_cap_utc, playbook_setup.
+- memory/PROJECT-CONTEXT.md → ACTIVE_CYCLE flag.
 
 STEP 2 — Pull live state:
 python scripts/coinbase.py position
 python scripts/coinbase.py orders
 python scripts/coinbase.py quote BTC-USD
 
-STEP 3 — If no open position, exit silent.
+STEP 3 — If ACTIVE_CYCLE=false exit silent.
 
-STEP 4 — Compute R: unrealized_R = (current_price - entry) / (entry - initial_stop)
+STEP 4 — Classify cycle phase from order states:
+  Phase A: sell OPEN,    rebuy OPEN    → waiting for breakdown
+  Phase B: sell FILLED,  rebuy OPEN    → in USD, waiting for re-entry
+  Phase C: sell FILLED,  rebuy FILLED  → cycle COMPLETE → STEP 7
+  Phase D: any CANCELLED externally → anomaly, alert, exit without auto-reopen
 
-STEP 5 — Management ladder:
-A) If unrealized_R >= 1 AND current stop is still at initial_stop:
-   Compute new_stop = entry × 1.002  (breakeven + 20 bps)
-   limit = new_stop × 0.995
-   python scripts/coinbase.py stop --base <size> --stop-price <new_stop> --limit <limit>
-   After the new stop is accepted:
-     python scripts/coinbase.py cancel <old_stop_order_id>
-   Log in trade log: "stop-moved-to-breakeven at $ts"
+STEP 5 — Phase-specific actions:
 
-B) If unrealized_R >= 1.5 AND no partial_1r5 marker in trade log:
-   python scripts/coinbase.py sell --pct 30
-   Log "partial_1r5 @ $current_price" and set partial_1r5: true
+  Phase A:
+    - Thesis-break check (WebSearch last 12h): if clear invalidation
+      (Fed walks back, BTC-positive shock, flows reverse): cancel both
+      orders, log "cycle aborted — thesis break (pre-trigger)",
+      ACTIVE_CYCLE=false, zero BTC delta.
+    - Weekend defense (§2 rule 19): if DOW==6 AND ≤4h to 00:00 UTC Saturday
+      AND research bias shifted bullish: cancel both, log, ACTIVE_CYCLE=false.
+    - Else: no action.
 
-C) If unrealized_R >= 2 AND no partial_2r marker:
-   python scripts/coinbase.py sell --pct 30
-   Compute new_stop = current_price - (entry - initial_stop)
-   Cancel old stop, place new stop at new_stop.
-   Log "partial_2r @ $current_price, stop moved to $new_stop"
+  Phase B:
+    - hours_since_sell = (now − sell_fill_time) in hours.
+    - If hours_since_sell ≥ 72 AND rebuy OPEN (§2 rule 15):
+        cancel rebuy_order_id
+        usd_from_sell = btc_to_sell × sell_fill_price
+        python scripts/coinbase.py buy --usd <usd_from_sell>
+        → STEP 6 (cycle close, time-cap).
+    - Weekend defense (§2 rule 19): if DOW==6 AND ≤4h to Saturday 00:00 UTC
+      AND (research deteriorating OR price > sell_fill_price): cancel rebuy,
+      market-buy with usd_from_sell, → STEP 6 (weekend_defense=true).
+    - Thesis break: same action as 72h cap.
+    - Else: no action.
 
-D) Runner trail (after partial_2r fired):
-   atr_1d = ask WebSearch for BTC 1D ATR 14 latest OR use 3% static buffer
-   swing_low_4h = most recent 4h swing low (from WebSearch)
-   new_trail = max(current_price - 3*atr_1d, swing_low_4h)
-   If new_trail > current stop by more than 3% of current price AND
-   new_trail < current price × 0.97:
-     Cancel old, place new stop at new_trail.
+  Phase D: alert, log, exit without commit.
 
-STEP 6 — Weekend-gap defense:
-If DOW == 6 AND unrealized_R <= -0.5:
-     python scripts/coinbase.py close
-     python scripts/coinbase.py cancel-all
-     Log "weekend-gap-defense exit at $price, unrealized R=$R"
+STEP 6 — Cycle close math (72h cap or forced close):
+  btc_rebuy_fill = usd_from_sell / market_buy_fill_price
+  btc_delta      = btc_rebuy_fill − btc_to_sell
+  If btc_delta < 0:
+    LAST_LOSING_CYCLE_UTC=$NOW_UTC
+    CONSECUTIVE_LOSING_CYCLES += 1
+  Else:
+    CONSECUTIVE_LOSING_CYCLES = 0
+  ACTIVE_CYCLE=false.
 
-STEP 7 — Thesis-break check: review last 12h of BTC news via WebSearch.
-If catalyst invalidation is clear: python scripts/coinbase.py close; cancel-all
+STEP 7 — Phase C (clean close):
+  btc_rebuy_fill = rebuy_order.filled_size
+  btc_delta      = btc_rebuy_fill − btc_to_sell
+  Update loss counters as in STEP 6.
+  Append "Cycle closed (re-entry filled)" block to TRADE-LOG with
+  btc_delta in sats and %.
 
-STEP 8 — Notification: only if any action was taken.
-  bash scripts/telegram.sh "[MANAGE] <action summary, current R, new stop>"
+STEP 8 — Notification: only if state changed.
+  bash scripts/telegram.sh "[CYCLE] <close type>: btc_delta ±N.NNNN (±X.X%)."
 
 NOTE: Local run — no commit or push.

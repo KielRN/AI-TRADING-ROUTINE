@@ -1,11 +1,19 @@
-# Research Agent Design v2 — Swing BTC on Free/Public Data
+# Research Agent Design v2 — BTC Accumulation on Free/Public Data
 
-**Prepared:** 2026-04-24
+**Prepared:** 2026-04-24 (revised 2026-04-24 for accumulation pivot)
 **Status:** Design. Supersedes [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md) v1.
 **Companion docs:**
-- [TRADING-STRATEGY.md](memory/TRADING-STRATEGY.md) — the rulebook and 4 setup types this pipeline must serve
+- [TRADING-STRATEGY.md](../memory/TRADING-STRATEGY.md) — the rulebook and 4 step-out setup types this pipeline must serve
 - [RESEARCH-DATA-STATUS.md](RESEARCH-DATA-STATUS.md) — per-datapoint live/stale/missing status (drives §3)
 - [RESEARCH-DATAPOINTS.md](RESEARCH-DATAPOINTS.md) — collection cadence
+
+> **2026-04-24 revision:** Strategy flipped from USD-swing (step-in) to
+> BTC-accumulation (step-out). The **rubric is unchanged** — the five
+> questions still select the same underlying market regime. The *direction*
+> of the resulting trade ideas changes, and the four `playbook_setup` tags
+> are renamed/reframed accordingly. All `"Serves setup"` cells in §3 now
+> reference the step-out names from
+> [TRADING-STRATEGY.md §3](../memory/TRADING-STRATEGY.md).
 
 ---
 
@@ -20,7 +28,8 @@ verification after the subscription went live showed:
 - No liquidation, long/short ratio, or per-venue funding endpoints
 
 The one-vendor thesis is broken. v1's synthesis-in-Python + monolithic
-`scripts/research/` package is also over-engineered for $3K equity. v2:
+`scripts/research/` package is also over-engineered for this scale of
+stack. v2:
 
 1. Replaces broken Chartinspect slices with free public sources.
 2. Collapses the Python orchestrator into the pattern already used by
@@ -31,13 +40,15 @@ The one-vendor thesis is broken. v1's synthesis-in-Python + monolithic
 
 ---
 
-## 1. Purpose — unchanged
+## 1. Purpose
 
-Swing trade BTC-USD (holding period 1–7 days) against the 5-point rubric in
-§5. Twice-daily structured report with bias, confidence, rubric scores, and
-0–2 trade ideas. Goal: beat BTC buy-and-hold Sharpe over each quarterly
-challenge window. Not a day-trading signal generator, not a price predictor,
-not a real-time alerter.
+Identify high-conviction **step-out** windows in BTC-USD (protective sell
+now, paired re-entry at a lower support, hold USD ≤ 72h) using the
+5-point rubric in §5. Twice-daily structured report with bias, confidence,
+rubric scores, and 0–2 trade ideas. Goal: grow the BTC stack over each
+quarterly challenge window versus a pure-HODL benchmark (0% BTC growth).
+Not a day-trading signal generator, not a price predictor, not a real-time
+alerter.
 
 ---
 
@@ -45,7 +56,7 @@ not a real-time alerter.
 
 | Area | v1 | v2 | Why |
 |---|---|---|---|
-| Architecture | Python package `scripts/research/` with async orchestrator + `synthesize.py` | Script-per-source CLI wrappers, composed by routine prompt | Matches existing pattern. Simpler at $3K. No Python synthesis layer to maintain. |
+| Architecture | Python package `scripts/research/` with async orchestrator + `synthesize.py` | Script-per-source CLI wrappers, composed by routine prompt | Matches existing pattern. Simpler at the current stack size. No Python synthesis layer to maintain. |
 | Synthesis | Premium OpenRouter call inside `synthesize.py` | LLM in the routine itself scores rubric from collected JSON | Already works this way in v1's stub; removes separate model billing. |
 | Chartinspect scope | 7+ endpoints (derivatives + on-chain + ETF + dominance) | 3 endpoints: funding, OI, whale-flows | Rest frozen or missing; keep the paid subscription only for what it serves. |
 | ETF flows | Per-issuer via Chartinspect | **Aggregate-only via LLM WebSearch** | Not load-bearing for any of the 4 setup types (see §3.3); WebSearch avoids a fragile HTML scrape. |
@@ -62,32 +73,32 @@ not a real-time alerter.
 ## 3. Signal inputs — v2 stack
 
 Every entry below maps to (a) a rubric slot in §5 and (b) at least one of
-the 4 playbook setups in [TRADING-STRATEGY.md §3](memory/TRADING-STRATEGY.md#3-setup-types-the-swing-playbook).
+the 4 step-out playbook setups in [TRADING-STRATEGY.md §3](../memory/TRADING-STRATEGY.md#3-step-out-setup-types).
 If it doesn't, it's not in v2.
 
 ### 3.1 Live today (wrappers already built)
 
 | Source | Wrapper | Rubric | Serves setup | Notes |
 |---|---|---|---|---|
-| Chartinspect — aggregate funding | [chartinspect.py](scripts/chartinspect.py) `funding-rates` | #2 | `funding_flip_divergence`, `sentiment_extreme_reversion` | Hourly; confirmed live |
-| Chartinspect — open interest | [chartinspect.py](scripts/chartinspect.py) `open-interest` | #2, #3 | `funding_flip_divergence`, `catalyst_driven_breakout` | Aggregate + per venue (Binance/OKX/Bybit/CME) |
-| Chartinspect — whale flows | [chartinspect.py](scripts/chartinspect.py) `whale-flows` | #3 | `onchain_accumulation_base` | 1k+ BTC cohorts |
-| YouTube titles | [youtube.py](scripts/youtube.py) `titles` | #2 | all setups (sentiment texture) | 6 channels, raw titles |
-| YouTube velocity | [youtube.py](scripts/youtube.py) `velocity` | #2 | all setups | 48h upload count — high velocity = regime-change signal |
-| Coinbase spot quote | [coinbase.py](scripts/coinbase.py) `quote BTC-USD` | #5 | all setups | Already used by trading path |
+| Chartinspect — aggregate funding | [chartinspect.py](../scripts/chartinspect.py) `funding-rates` | #2 | `funding_flip_divergence`, `sentiment_extreme_greed_fade` | Hourly; confirmed live |
+| Chartinspect — open interest | [chartinspect.py](../scripts/chartinspect.py) `open-interest` | #2, #3 | `funding_flip_divergence`, `catalyst_driven_breakdown` | Aggregate + per venue (Binance/OKX/Bybit/CME) |
+| Chartinspect — whale flows | [chartinspect.py](../scripts/chartinspect.py) `whale-flows` | #3 | `onchain_distribution_top` | 1k+ BTC cohorts; step-out reads the *inflow* side of this feed |
+| YouTube titles | [youtube.py](../scripts/youtube.py) `titles` | #2 | all setups (sentiment texture) | 6 channels, raw titles |
+| YouTube velocity | [youtube.py](../scripts/youtube.py) `velocity` | #2 | all setups | 48h upload count — high velocity = regime-change signal |
+| Coinbase spot quote | [coinbase.py](../scripts/coinbase.py) `quote BTC-USD` | #5 | all setups | Already used by trading path |
 
 ### 3.2 To build (Phase 1 — §9)
 
 | Source | New wrapper | Endpoint | Rubric | Serves setup | Cost |
 |---|---|---|---|---|---|
-| Fear & Greed Index | `scripts/fng.py` | `alternative.me/fng/` | #2 | `sentiment_extreme_reversion` | Free, no key |
+| Fear & Greed Index | `scripts/fng.py` | `alternative.me/fng/` | #2 | `sentiment_extreme_greed_fade` | Free, no key |
 | CoinGecko global | `scripts/coingecko.py` | `/api/v3/global` | #3, #5 | all setups (regime) | Free, 30 req/min |
-| DeFiLlama stablecoins | `scripts/defillama.py` | `stablecoins.llama.fi/stablecoins` | #3 | `onchain_accumulation_base` | Free, no key |
-| Binance public | `scripts/binance.py` | `/fapi/v1/premiumIndex`, `/fapi/v1/forceOrders`, `/futures/data/topLongShortPositionRatio` | #2 | `funding_flip_divergence`, `sentiment_extreme_reversion` | Free, no key |
+| DeFiLlama stablecoins | `scripts/defillama.py` | `stablecoins.llama.fi/stablecoins` | #3 | `onchain_distribution_top` (watches falling stablecoin supply = dry powder leaving) | Free, no key |
+| Binance public | `scripts/binance.py` | `/fapi/v1/premiumIndex`, `/fapi/v1/forceOrders`, `/futures/data/topLongShortPositionRatio` | #2 | `funding_flip_divergence`, `sentiment_extreme_greed_fade` | Free, no key |
 | OKX public | `scripts/okx.py` | `/api/v5/public/funding-rate` | #2 | `funding_flip_divergence` | Free, no key |
-| FRED | `scripts/fred.py` | `DGS10`, `DFII10`, `M2SL`, `T10Y2Y` | #4 | `catalyst_driven_breakout` (macro alignment) | Free, API key already in `.env` |
-| yfinance | `scripts/yfinance.py` | `DX=F`, `^GSPC`, `^VIX`, `GC=F` | #4 | `catalyst_driven_breakout` | Free, no key |
-| Coinbase candles | `scripts/candles.py` | public `/products/BTC-USD/candles` daily/weekly/monthly + derived ATR + S/R | #5 | all setups (entry + stop levels) | Free, no key |
+| FRED | `scripts/fred.py` | `DGS10`, `DFII10`, `M2SL`, `T10Y2Y` | #4 | `catalyst_driven_breakdown` (macro alignment) | Free, API key already in `.env` |
+| yfinance | `scripts/yfinance.py` | `DX=F`, `^GSPC`, `^VIX`, `GC=F` | #4 | `catalyst_driven_breakdown` | Free, no key |
+| Coinbase candles | `scripts/candles.py` | public `/products/BTC-USD/candles` daily/weekly/monthly + derived ATR + S/R | #5 | all setups (sell-trigger + re-entry levels) | Free, no key |
 
 ### 3.3 Handled by routine LLM WebSearch (no wrapper)
 
@@ -97,11 +108,13 @@ If it doesn't, it's not in v2.
 | Spot BTC ETF aggregate net flow (last 24h) | "Spot BTC ETF aggregate net flow last 24 hours USD" | Not load-bearing for any of the 4 setup types (see note below); avoids a fragile HTML scrape. |
 | Unscheduled news scan | "BTC-specific news last 24h regulation SEC ETF exchange failure" | Detection-only signal per §7.1 mitigation path. |
 
-**ETF flow note:** review of [TRADING-STRATEGY.md §3](memory/TRADING-STRATEGY.md#3-setup-types-the-swing-playbook) shows
-no setup's primary trigger is ETF flow — `catalyst_driven_breakout` keys on
-funding + dominance, `sentiment_extreme_reversion` on F&G + funding,
-`funding_flip_divergence` on funding + OI, `onchain_accumulation_base` on
-exchange flow + stablecoin supply. ETF flow is contextual, not
+**ETF flow note:** review of [TRADING-STRATEGY.md §3](../memory/TRADING-STRATEGY.md#3-step-out-setup-types) shows
+no setup's primary trigger is ETF flow — `catalyst_driven_breakdown` keys
+on scheduled macro catalyst + consolidation floor + funding, `sentiment_extreme_greed_fade`
+on F&G ≥ 80 + funding + weekly resistance, `funding_flip_divergence` on
+funding + OI, `onchain_distribution_top` on exchange *inflow* + stablecoin
+supply + range-extension. ETF flow is contextual (sustained outflows
+strengthen any step-out thesis, sustained inflows weaken it) but never
 entry-triggering. WebSearch precision is sufficient.
 
 ### 3.4 Deferred (no value for v2 at current equity)
@@ -209,11 +222,11 @@ sources populate it:
 | Routine | Schedule (UTC) | Job |
 |---|---|---|
 | research-and-plan | 00:00 and 12:00 daily | `research.sh collect`, LLM scores rubric, writes report |
-| execute | 00:30 and 12:30 daily | Re-validate top idea, place order + hard stop |
-| manage | Every 4h | Management ladder per TRADING-STRATEGY §2.14 |
-| panic-check | Hourly | Positions check, alert on ≤-1.5R breach |
-| daily-summary | 23:30 UTC | 24h P&L snapshot |
-| weekly-review | Sunday 00:00 UTC | Grade A–F |
+| execute | 00:30 and 12:30 daily | Re-validate top idea, place **paired** sell-trigger + re-entry limit (one cycle) |
+| manage | Every 4h | Cycle lifecycle: detect sell-trigger fills, enforce 72h re-entry cap, weekend defense per [TRADING-STRATEGY §2 rule 19](../memory/TRADING-STRATEGY.md#2-hard-rules-non-negotiable) |
+| panic-check | Hourly | Active-cycle BTC-loss breach (≥1.5R), BTC-stack drawdown halt (≥15%), 5xx abort, stablecoin de-peg |
+| daily-summary | 23:30 UTC | 24h BTC-delta snapshot + USD-reserve state |
+| weekly-review | Sunday 00:00 UTC | Grade A–F vs HODL (0% BTC growth) |
 
 Only change: the `research-and-plan` prompt is updated to call
 `research.sh collect` once instead of the current multi-WebSearch loop, and
@@ -285,6 +298,23 @@ One schema addition:
 The execute routine reads `data_health` and degrades to skip if a
 rubric-load-bearing slot is missing (see §5 fallback column).
 
+**`trade_ideas[].playbook_setup` must be one of the four step-out tags in
+[TRADING-STRATEGY §3](../memory/TRADING-STRATEGY.md#3-step-out-setup-types):**
+`catalyst_driven_breakdown`, `sentiment_extreme_greed_fade`,
+`funding_flip_divergence`, `onchain_distribution_top`. Any other tag is a
+schema error and the report is rejected by the execute routine.
+
+**`trade_ideas[]` field renames for step-out semantics:**
+
+| v1 field | v2 field | Notes |
+|---|---|---|
+| `entry` | `sell_trigger_price` | Technical breakdown level where the `STOP_LIMIT` sell fires |
+| `stop` | *(removed)* | No hard stop — the protective action *is* the sell-trigger |
+| `target` | `rebuy_limit_price` | Technical support where the paired `LIMIT` buy sits |
+| — | `worst_case_rebuy_price` | Estimated fill price of the 72h time-capped market buy; feeds the §2 rule 8 sizing formula and the §2 rule 16 R:R check |
+
+The schema otherwise remains the v1 §8.1 shape.
+
 ---
 
 ## 9. Order of work
@@ -308,11 +338,12 @@ signature so other routines can still invoke with a query string if ever
 needed (no-op in v2).
 
 **Phase 3 — routine integration (~2 days).** Update
-[routines/research-and-plan.md](routines/research-and-plan.md) and
-[.claude/commands/research.md](.claude/commands/research.md):
+[routines/research-and-plan.md](../routines/research-and-plan.md) and
+[.claude/commands/research.md](../.claude/commands/research.md):
 - Replace STEP 3's multi-WebSearch loop with one `bash scripts/research.sh collect` call.
 - STEP 3a: the three §3.3 WebSearch queries (calendar, ETF aggregate flow, unscheduled-news scan).
 - STEP 4: score the rubric from the merged JSON payload + WebSearch results.
+- STEP 5: emit trade ideas using the step-out schema (`sell_trigger_price`, `rebuy_limit_price`, `worst_case_rebuy_price`, `playbook_setup` ∈ the four step-out tags).
 - Everything else stays.
 
 **Phase 4 — forward-test (4–6 weeks).** Pipeline runs in shadow mode —
@@ -389,7 +420,7 @@ Total: **~2 weeks build + 4–6 weeks shadow** (8 wrappers + composer + routine 
 
 ## 12. Cross-reference
 
-- **Strategy rulebook:** [memory/TRADING-STRATEGY.md](memory/TRADING-STRATEGY.md)
+- **Strategy rulebook:** [memory/TRADING-STRATEGY.md](../memory/TRADING-STRATEGY.md)
 - **Per-datapoint status:** [RESEARCH-DATA-STATUS.md](RESEARCH-DATA-STATUS.md)
 - **Per-datapoint cadence:** [RESEARCH-DATAPOINTS.md](RESEARCH-DATAPOINTS.md)
 - **Alternatives parking lot:** [RESEARCH-DATA-ALTERNATIVES.md](RESEARCH-DATA-ALTERNATIVES.md) — CDP, in-house build, hybrid

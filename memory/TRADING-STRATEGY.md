@@ -1,272 +1,262 @@
-# BTC/USD Swing Playbook — Coinbase Advanced Trade
+# BTC Accumulation Playbook — Coinbase Advanced Trade
 
-**Prepared:** 2026-04-22 (v1)
-**Status:** Strategy playbook. This is the rulebook the bot reads every session.
+**Prepared:** 2026-04-24 (v2 — accumulation pivot)
+**Status:** Strategy playbook. Replaces the USD-swing v1.
 **Companion docs:**
 - [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) — how the bot is built and deployed
-- [../research/RESEARCH-AGENT-DESIGN.md](../research/RESEARCH-AGENT-DESIGN.md) — the 5-point rubric that grades each setup
+- [../research/RESEARCH-AGENT-DESIGN-V2.md](../research/RESEARCH-AGENT-DESIGN-V2.md) — the 5-point rubric that grades each step-out setup
 
-This document defines the trading rules for a swing BTC/USD bot running on
-Coinbase Advanced Trade. The rules are non-negotiable. Every workflow in the
-setup guide reads this file first and must validate against it before placing
-an order.
+This document defines the trading rules for a BTC-accumulation bot running
+on Coinbase Advanced Trade. The unit of account is **BTC**, not USD. The
+rules are non-negotiable. Every workflow reads this file first and must
+validate against it before placing an order.
 
 ---
 
 ## 1. Mission
 
-Grow a **$3,000** BTC spot account on Coinbase Advanced Trade over a rolling
-quarterly challenge window by trading a disciplined swing strategy (holding
-period 1–7 days). Beat spot-BTC buy-and-hold on a risk-adjusted basis
-(Sharpe > BTC's Sharpe over the same window), not just on raw return.
+Grow a **BTC stack** on Coinbase Advanced Trade over a rolling quarterly
+challenge window by swing-trading in and out of USD at documented technical
+breakdowns. Success is measured in **BTC count**, not dollars.
 
-**What this bot is:** a swing trader of BTC/USD spot.
-**What this bot is not:** a day trader, a high-frequency strategy, a leveraged
-strategy, a multi-asset strategy, or a narrative-chaser.
+**Benchmark:** pure HODL (0% BTC growth per quarter). Any quarter where the
+bot ends with *fewer* BTC than it started is a loss, regardless of USD P&L.
+
+**What this bot is:** a BTC accumulator using protective stops to rotate
+temporarily to USD during high-conviction downside setups, then buy back
+cheaper to add sats.
+**What this bot is not:** a HODL-only bot, a USD-denominated swing trader,
+a day trader, a leveraged strategy, an altcoin strategy, a narrative-chaser.
 
 ---
 
 ## 2. Hard rules (non-negotiable)
 
-These are the rules. They were chosen deliberately for a 24/7 market with
-real weekend-gap risk, higher volatility than equities, and no PDT-equivalent
-constraint. They replace the stock-swing rules in Nate Herk's original
-Alpaca setup.
-
-### Instrument & leverage
-1. **Spot BTC/USD only.** No futures, no perpetuals, no leverage, no margin,
-   no options, no altcoins, no staking. Ever.
-2. **Coinbase Advanced Trade** is the only venue. No cross-venue arbitrage,
-   no moving capital off-exchange mid-trade.
+### Instrument & venue
+1. **Spot BTC/USD only.** No futures, perpetuals, leverage, margin, options,
+   altcoins, or staking. Ever.
+2. **Coinbase Advanced Trade** is the only venue.
 
 ### Position structure
-3. **One open BTC position at a time.** A single-asset strategy does not need
-   position-count caps — it needs a "max one" rule to prevent the bot from
-   averaging down or doubling up on the same thesis.
-4. **70–90% of capital deployed when in a position.** The remaining 10–30% is
-   a liquidity buffer for fees, slippage, and the next entry. When flat, all
-   cash is idle — no "earn" products, no auto-staking.
-5. **Max 2 new entries per 7-day rolling window.** Crypto chops — forcing a
-   third entry in a week has historically been the single biggest source of
-   realized losses across similar strategies.
+3. **Steady state = 80–90% BTC by value, 10–20% USD reserve.** The USD
+   reserve is dry powder for the first dip on a step-out cycle; the BTC is
+   the core stack. Fully-in-BTC (<10% USD) or fully-in-USD (>20% USD) are
+   both out-of-spec states that the bot must rebalance toward steady state
+   within the next scheduled window.
+4. **One active cycle at a time.** A cycle = a sell-trigger + its paired
+   re-entry. No second sell-trigger while the first re-entry is pending.
+5. **Max 2 new cycles per rolling 7-day window.** Overtrading erodes the
+   stack.
+6. **Max 30% of the BTC stack sold on any single cycle.** Never sell the
+   whole stack on a setup — a single thesis failure would wipe out months
+   of accumulated sats.
 
-### Risk per trade
-6. **Risk is a function of rubric grade**, set by the research agent
-   ([../research/RESEARCH-AGENT-DESIGN.md §5](../research/RESEARCH-AGENT-DESIGN.md#5-the-swing-rubric-replaces-the-fx-rubric-in-decidepy)):
-   - **A-grade (5/5):** 1.0% of account equity at risk
-   - **B-grade (3–4/5):** 0.5% of account equity at risk
+### Risk per cycle (BTC-denominated)
+7. **Risk is a function of rubric grade** (research agent):
+   - **A-grade (5/5):** 1.0% of current BTC stack at risk
+   - **B-grade (3–4/5):** 0.5% of current BTC stack at risk
    - **< 3/5:** skip. No trade.
-7. At $3,000 starting equity this means **$30 at risk on an A-grade setup,
-   $15 at risk on a B-grade setup.** Position size is derived from risk, not
-   fixed at a dollar amount.
-8. **Position size formula:**
-   `size_usd = (equity × risk_pct) / ((entry - stop) / entry)`
-   Round *down* to the nearest $10 USD to stay under the risk ceiling.
+8. **Position sizing formula:**
+   ```
+   fraction_to_sell = risk_pct / (1 − sell_trigger_price / worst_case_rebuy_price)
+   BTC_to_sell       = fraction_to_sell × current_BTC_stack
+   ```
+   where `worst_case_rebuy_price` is the estimated price at which the 72h
+   time-capped market buy (§15) would fire if the re-entry limit never
+   fills. Cap `fraction_to_sell` at 0.30 per rule 6. Round down.
 
-### Stops
-9. **Every entry has a hard stop placed as a real `STOP_LIMIT` sell order on
-   Coinbase, GTC.** Never a mental stop. Never a market-if-touched. The stop
-   goes in the same run as the buy — if the stop order fails to place, the
-   buy is reversed within the same workflow.
-10. **Initial stop is 1R below entry,** where 1R is sized so the whole trade
-    risks the §6 dollar amount. The stop is placed at a *technical* level
-    (weekly swing low, prior consolidation floor, HTF S/R) — not a round
-    percentage. If no technical stop is within the risk budget, the trade is
-    skipped.
-11. **Stops never move down.** A stop only moves toward or past breakeven.
-    Never widen a stop mid-trade.
-12. **Weekend gap defense:** before 00:00 UTC Saturday, if the position is
-    within 1.5R of the stop and the next research window shows a deteriorating
-    setup, the bot closes at market. Weekends are a risk multiplier — don't
-    hold a losing trade over one.
+### Sell-triggers (the "stops")
+9. **Every step-out cycle places TWO orders in the same workflow run:**
+   a. Sell-trigger (`STOP_LIMIT` sell, GTC) at the breakdown level
+   b. Re-entry limit (`LIMIT` buy, GTC) at the planned buy-back level
+   If either order fails to place, the other is cancelled within the same
+   workflow — no half-cycles.
+10. **Sell-trigger at a technical level**, never a round %. Weekly swing
+    low, consolidation floor, HTF S/R breakdown point. Round percentages
+    get front-run.
+11. **Sell-triggers never move UP.** They can only move lower (further from
+    price, narrowing risk) or be cancelled when the cycle closes. Moving a
+    trigger up is chasing and locks in a BTC loss beyond the budget.
 
-### Targets & management
-13. **Minimum 2:1 reward-to-risk** required for every entry. A 1R stop demands
-    a 2R target documented before the buy.
-14. **Management ladder** (run every 4h by the `manage` routine):
-    - At **+1R unrealized:** cancel the initial stop, place a new stop at
-      breakeven + fees buffer (~0.2% above entry for a long). Trade is now
-      risk-free.
-    - At **+1.5R unrealized:** sell 30% of the position at market ("partial
-      take-profit"), keep the remainder with stop at breakeven.
-    - At **+2R unrealized (the documented target):** sell another 30% at
-      market. Move stop to +1R below current price. The last 40% is the
-      "runner" — let it trail.
-    - **Runner trail:** 3-ATR (1-day ATR) or the most recent 4h swing low,
-      whichever is higher. Never within 3% of current price.
-15. **Thesis-break exit:** if the catalyst that justified rubric #1 is
-    invalidated intraday (Fed speaker walks back a decision, ETF flows flip,
-    on-chain flows reverse hard), close the whole position at market
-    regardless of P&L state. Document the break in the trade log.
+### Re-entry rules (the accumulation half)
+12. **Every sell-trigger pairs with a re-entry plan. The buy-back is not
+    optional** — sitting in USD forever is anti-accumulation.
+13. **Re-entry limit placed at a documented support level** (next weekly
+    S/R below the breakdown, 30-day range mean, prior consolidation top,
+    etc.) for the full USD amount from the sell.
+14. **Re-entry never moves HIGHER** than its original price. Chasing the
+    buy-back up locks in BTC loss beyond the risk budget.
+15. **Time cap: 72 hours.** If the re-entry limit doesn't fill within 72h
+    of the sell-trigger firing, the bot market-buys with the remaining USD.
+    72h is the outer bound of the swing horizon; USD held longer is
+    accumulation failure.
+
+### R:R minimum (BTC terms)
+16. **Minimum 2:1 BTC R:R required for every cycle.**
+    ```
+    gain_if_right = (sell_trigger_price / rebuy_limit_price) − 1     # positive
+    loss_if_wrong = 1 − (sell_trigger_price / worst_case_rebuy_price) # positive
+    ratio = gain_if_right / loss_if_wrong   # must be ≥ 2.0
+    ```
+    A setup that doesn't clear 2:1 in BTC terms gets a tighter sell-trigger,
+    a deeper re-entry, or gets skipped.
 
 ### Cooldown
-16. **After a full-stop loss (stopped out at initial 1R stop):** no new
-    entries for **48 hours.** The research rubric has to re-score a fresh
-    setup in a new window. This is the discipline equivalent of "sector
-    cooldown" in the stock playbook — except crypto has no sectors, so the
-    cooldown applies to the whole asset.
-17. **After two consecutive stop-outs:** no new entries for **7 days.** The
-    weekly-review routine triggers a strategy post-mortem. If the rubric is
-    producing A-grades that lose, the rubric is the problem, not the rules.
+17. **After a losing cycle** (bought back at a higher price than sold →
+    net-negative BTC): **48h cooldown** before the next sell-trigger.
+18. **After two consecutive losing cycles:** **7-day cooldown** + weekly-
+    review post-mortem. If the rubric is producing A-grades that lose
+    sats, the rubric is the problem.
+
+### Weekend defense
+19. If a cycle is active over a weekend and the re-entry hasn't filled by
+    00:00 UTC Saturday AND the next research window shows a deteriorating
+    setup, the bot market-buys to close the cycle. USD held through a
+    weekend tail-risk event would need a sharper drop than Monday re-open
+    to stay accumulation-positive — not worth the gap risk.
 
 ---
 
-## 3. Setup types (the swing playbook)
+## 3. Step-out setup types
 
-Every rubric A- or B-grade trade must match one of these four documented
-setups. The research agent tags each trade idea with a `playbook_setup` field
-(see [../research/RESEARCH-AGENT-DESIGN.md §8.1](../research/RESEARCH-AGENT-DESIGN.md#81-machine-readable-memoryresearch-reportsyyyy-mm-dd-hhjson)).
-If a trade idea doesn't match one of these, it's skipped regardless of grade.
+Every cycle must match one of these four documented step-out setups. The
+research agent tags each trade idea with a `playbook_setup` field. If a
+trade idea doesn't match one of these, it's skipped regardless of grade.
 
-### 3.1 `catalyst_driven_breakout`
+### 3.1 `catalyst_driven_breakdown`
 **When:** scheduled macro catalyst in the next 1–3 days (FOMC, CPI, NFP, major
-ETF decision), price is consolidating at or below a weekly resistance level,
-funding rate neutral-to-negative (crowd is short or unconvinced), BTC
-dominance stable or rising.
+ETF decision) is likely to resolve against current positioning (e.g.,
+market priced dovish into a hawkish-expected Fed), price consolidating at
+or below a weekly resistance level, funding positive (crowd leaning long
+into the event), BTC dominance stable or falling.
 
-**Entry:** buy stop above the consolidation high, or market buy on a confirmed
-breakout with volume.
+**Sell-trigger:** below the consolidation floor (not a round %).
+**Re-entry:** next weekly support below the breakdown, or 2R in BTC terms,
+whichever is further.
 
-**Stop:** below the consolidation floor (not a round %).
-**Target:** next weekly resistance or 2R, whichever is further.
+### 3.2 `sentiment_extreme_greed_fade`
+**When:** F&G ≥ 80 (extreme greed), price at a weekly resistance level,
+funding deeply positive (long squeeze setup).
 
-### 3.2 `sentiment_extreme_reversion`
-**When:** F&G ≤ 20 (extreme fear) or ≥ 80 (extreme greed), price at a weekly
-S/R level, funding aligned with the contrarian direction (funding deeply
-negative when F&G is extreme-fear → short squeeze setup; funding deeply
-positive when F&G is extreme-greed → long squeeze setup).
+**Sell-trigger:** at the recent weekly swing low below current price.
+**Re-entry:** 30-day range mean, or 2R in BTC terms minimum.
 
-**Entry:** market buy (for extreme-fear reversal) or skip if long-only is
-wrong-sided.
-**Stop:** below the most recent weekly swing low.
-**Target:** mean of the 30-day price range, or 2R minimum.
-
-**Note:** this playbook is long-only. Extreme-greed setups surface as "no
-trade, wait for reversion, consider a hedged entry later" — the bot does
-not short.
+**Note:** this is the mirror of the old `sentiment_extreme_reversion`.
+Under accumulation, fear extremes don't trigger an action — the bot is
+already long BTC, so "buy the fear" is already the default state. Only
+greed extremes can prompt a step-out.
 
 ### 3.3 `funding_flip_divergence`
-**When:** price is making a new local high but funding rates flip from
-positive to negative across 2+ exchanges (Binance, OKX per CoinGlass), or
-vice versa at a local low. Open interest expanding in the opposite direction
-of price.
+**When:** price making a new local high but funding flips negative across
+2+ exchanges (Binance, OKX), or open interest expanding opposite to price
+direction. "Smart money is leaning against the crowd" at a top.
 
-This is the "smart money is leaning against the crowd" setup.
+**Sell-trigger:** above the divergence high at a technical level.
+**Re-entry:** the level the divergence started, or 2R in BTC terms minimum.
 
-**Entry:** market buy when price pulls back to the level where the divergence
-started.
-**Stop:** 1R below the pullback low, at a technical level.
-**Target:** retest of the recent high + 2R minimum.
+### 3.4 `onchain_distribution_top`
+**When:** exchange net INflow > $100M over 7 days (distribution to
+exchanges = supply pressure), stablecoin supply falling (dry powder
+leaving), price extended above the 30-day range at a monthly S/R level,
+adverse macro catalyst in the next 72h.
 
-### 3.4 `onchain_accumulation_base`
-**When:** exchange net outflow > $100M over 7 days (accumulation), stablecoin
-supply rising (dry powder), price in a sideways base at a monthly S/R level,
-no adverse macro catalyst in the next 72 hours.
-
-**Entry:** market buy at the base's midpoint or a pullback to its floor.
-**Stop:** below the base (not the daily low; the multi-week structure).
-**Target:** prior range high or 2R, whichever is further.
-
-This is the slowest setup — holding can be the full 7 days. Discipline: don't
-exit early because of chop. The thesis is multi-day accumulation, and the
-stop does the risk work.
+**Sell-trigger:** below the range midpoint.
+**Re-entry:** below the range, at 2R or the prior monthly S/R, whichever
+is further.
 
 ---
 
-## 4. Entry checklist (agent documents all of these before placing)
+## 4. Cycle checklist (filled before orders fire)
 
-Every entry requires the agent to fill this in and append to
-`memory/TRADE-LOG.md` **before** the buy order fires. No documentation, no trade.
+Every cycle requires the agent to fill this and append to `memory/TRADE-LOG.md`
+**before** any order hits the exchange.
 
 ```
 Date (UTC):
-Playbook setup: [catalyst_driven_breakout | sentiment_extreme_reversion
-                 | funding_flip_divergence | onchain_accumulation_base]
+Playbook setup: [catalyst_driven_breakdown | sentiment_extreme_greed_fade
+                 | funding_flip_divergence | onchain_distribution_top]
 Rubric grade: [A | B]
 Rubric scores: catalyst=X sentiment=X onchain=X macro=X technical=X
 Specific catalyst / thesis: (one paragraph)
-Entry price:
-Stop price: (must be at a documented technical level)
-Target price: (must be ≥ 2R)
-Risk per trade ($): (must match §6)
-Position size (USD):
-Position size (BTC):
-Risk/reward ratio:
-Weekly trade count (including this one):  /2
+Sell-trigger price: (technical level)
+Re-entry limit price: (technical level)
+Worst-case rebuy price (72h market buy estimate):
+Risk budget (% of stack): (0.5 or 1.0)
+Fraction of stack to sell (formula result, ≤ 0.30):
+BTC to sell:
+USD expected from sell:
+Expected BTC on re-entry fill:
+Expected BTC on worst-case re-entry:
+Cycle BTC R:R: (must be ≥ 2.0)
+Weekly cycle count (including this one): /2
 ```
 
 ---
 
-## 5. Exit rules (beyond the management ladder)
+## 5. Exit rules (cycle close)
 
-### Normal exits
-- Stop hit → trade is done. Log realized P&L.
-- Target hit (2R) → partial + runner per §2 rule 14.
-- Runner trail hit → trade is done.
+### Normal closes
+- **Re-entry limit fills:** cycle closed at plan. Log BTC delta.
+- **72h time cap fires → market buy with remaining USD:** cycle closed at
+  realized loss. Log BTC delta.
+- **Sell-trigger cancelled before firing** (thesis broken before breakdown):
+  cycle abandoned. Log as zero-delta.
 
-### Discretionary / thesis-break exits
-- **Catalyst invalidated:** close at market, log "thesis broken".
-- **Major regulatory shock / exchange failure:** close at market, flatten,
-  wait for the next research window before re-engaging.
-- **Weekly-review grades the setup D or F retroactively:** close any still-open
-  position from that trade on Monday's first research window.
+### Discretionary closes
+- **Thesis break mid-cycle** (catalyst invalidated intraday, e.g., Fed
+  walks back a decision, flows reverse hard): cancel the remaining order
+  and close at market. Document the break.
+- **Weekly-review grades the setup D or F retroactively:** close any
+  still-open cycle on Monday's first window.
 
-### Forced exits
-- **Weekend gap defense:** §2 rule 12.
-- **Panic-check breach:** the hourly `panic-check` routine closes the position
-  if unrealized P&L ≤ -1.5R (i.e., the stop failed or was skipped; halt and
-  investigate before the next entry).
+### Forced closes
+- **Weekend-gap defense:** §2 rule 19.
+- **Panic breach:** the hourly `panic-check` routine closes any active
+  cycle if unrealized BTC loss ≥ 1.5R.
 
 ---
 
-## 6. Weekly grading (Friday / end-of-week review)
+## 6. Weekly grading (Sunday 00:00 UTC)
 
-Every Sunday 00:00 UTC the `weekly-review` routine grades the week.
-
-### Stats computed
-- Starting equity (Monday 00:00 UTC), ending equity (Sunday 00:00 UTC)
-- Week return ($ and %)
-- BTC buy-and-hold return (Sunday 00:00 UTC / Monday 00:00 UTC −1)
-- Alpha vs BTC (bot % − BTC %)
-- Closed trades: W / L / open counts
-- Win rate on closed trades
-- Best trade, worst trade
-- Profit factor: sum(winners) / |sum(losers)|
-- Average R realized per trade (closed)
+### Stats (all in BTC terms)
+- Starting BTC (Mon 00:00 UTC), ending BTC (Sun 00:00 UTC)
+- Week BTC delta (absolute sats, %)
+- Closed cycles: W / L / open
+- Win rate (cycles that ended with more BTC than started the cycle)
+- Best cycle (largest BTC gain), worst cycle (largest BTC loss)
+- Profit factor: sum(BTC gained on winners) / |sum(BTC lost on losers)|
+- Alpha vs HODL = bot's BTC delta %, since HODL is defined as 0% BTC growth
 
 ### Letter grade
-- **A:** alpha > +2% for the week, profit factor > 1.5, no rule violations
-- **B:** alpha > 0, no rule violations
-- **C:** alpha in (-2%, 0], no rule violations
-- **D:** any rule violation, or alpha ≤ -2%
-- **F:** stop-loss failure, cooldown violation, leverage/altcoin/option attempted, or two+ rule violations
+- **A:** BTC delta > +2% for the week, profit factor > 1.5, no rule violations
+- **B:** BTC delta > 0, no rule violations
+- **C:** BTC delta in (−1%, 0], no rule violations
+- **D:** any rule violation, or BTC delta ≤ −1%
+- **F:** stop-loss failure, cooldown violation, leverage/alt attempted, or
+  two+ rule violations
 
 ### Rule-change discipline
-- A rule change requires two consecutive weekly reviews where the same
-  specific friction point is documented. One-off bad weeks don't justify
-  rule changes — that's exactly how discipline erodes.
-- Rule changes are committed to `memory/TRADING-STRATEGY.md` (this playbook)
-  in the same commit as the weekly review, with a diff the human can review.
+Rule changes require two consecutive weekly reviews documenting the same
+friction point. One-off bad weeks don't justify rule changes.
 
 ---
 
 ## 7. Integration with the research agent
 
-The research agent ([../research/RESEARCH-AGENT-DESIGN.md](../research/RESEARCH-AGENT-DESIGN.md))
-writes two artifacts twice a day: a JSON report and a journal entry. The
-execute workflow consumes the JSON:
+Research agent output ([../research/RESEARCH-AGENT-DESIGN-V2.md](../research/RESEARCH-AGENT-DESIGN-V2.md))
+still uses the 5-point rubric. The **rubric questions are unchanged**, but
+the *direction* of trade ideas flipped from step-in (buy) to step-out (sell
++ re-enter).
 
 ```
-rubric.grade  →  §2 rule 6 (sizing)
-rubric.catalyst  →  §3 playbook match (catalyst_driven_breakout requires true)
-trade_ideas[0].playbook_setup  →  §3 (must be one of the four types)
-trade_ideas[0].entry/stop/target  →  §4 (feeds the entry checklist)
+rubric.grade            → §2 rule 7 (sizing)
+rubric.catalyst         → §3.1 (catalyst_driven_breakdown requires true)
+trade_ideas[0].playbook_setup  → §3 (must be one of four step-out types)
+trade_ideas[0].sell_trigger_price / rebuy_limit_price / worst_case_rebuy
+                        → §4 (feeds the cycle checklist)
 ```
 
 **Order of authority on conflict:** this playbook > research agent output.
-If the research agent outputs an A-grade long with a stop that violates §2
-rule 9–10 (e.g., stop is a percentage not a technical level, or stop moves
-down), the bot skips and logs the conflict for the weekly review.
 
 ---
 
@@ -274,85 +264,88 @@ down), the bot skips and logs the conflict for the weekly review.
 
 The `panic-check` routine (hourly) enforces these.
 
-1. **Unrealized P&L ≤ -1.5R on the open position:** close at market. The
-   initial stop should have fired; if it didn't, the stop order failed.
-   Investigate before any new entry.
-2. **Account equity drawdown ≥ 15% from the quarterly starting equity:** halt
-   all new entries. The bot sends a Telegram alert and waits for a manual
-   `/resume` command before any further trades.
-3. **Coinbase Advanced Trade returns 5xx on >3 consecutive calls across a
-   routine run:** halt that run, send an alert, exit. The next scheduled run
-   will retry from a fresh state.
-4. **Stablecoin de-peg event (USDC ≤ $0.98 or USDT ≤ $0.97):** close any
-   position, flatten to BTC-in-wallet (not USD), send an alert. Do not
-   re-engage until USDC/USDT re-peg.
+1. **Unrealized BTC loss on an active cycle ≥ 1.5R:** market-close the cycle.
+   The sell-trigger and/or re-entry should have behaved correctly; if not,
+   investigate before the next cycle.
+2. **BTC stack drawdown ≥ 15% from quarterly starting BTC count:** halt all
+   new cycles until manual `/resume`. Telegram alert. 15% in sats terms is
+   15 consecutive losses at 1% risk or fewer bigger ones — either way,
+   something is wrong at the strategy level.
+3. **Coinbase Advanced Trade 5xx > 3 consecutive calls in one routine
+   run:** halt the run, alert, exit. Next scheduled run retries from fresh
+   state.
+4. **Stablecoin de-peg** (USDC ≤ $0.98 or USDT ≤ $0.97): cancel any active
+   buy-back limit immediately and rotate remaining USD to BTC at market.
+   Do not re-engage cycles until re-peg. The stack is safer in BTC than in
+   a de-pegging stable.
+5. **Exchange / regulatory shock:** flatten any active cycle to BTC
+   (cancel sells, execute any pending buy-backs at market), pause new
+   cycles, alert.
 
 ---
 
-## 9. Defaults — locked in v1
-
-These are the parameter choices for v1. Re-evaluate only at a weekly review.
+## 9. Defaults — locked in v1 (2026-04-24)
 
 | Parameter | v1 value | Re-evaluation trigger |
 |---|---|---|
-| Starting capital | $3,000 | Quarterly challenge reset |
-| Risk per trade | 0.5% B / 1.0% A | 4+ weeks of stable performance → consider 0.75% B / 1.5% A |
-| Max open positions | 1 | Never — strategy is single-asset |
-| Max new entries / week | 2 | 4+ weeks at < 2 trades/week average → consider raising to 3 |
-| Deployed capital | 70–90% when in a trade | Fixed |
-| Initial stop | 1R at a technical level | Fixed |
-| Target | ≥ 2R | Fixed |
-| Management ladder | BE at +1R, partial at +1.5R, partial at +2R, runner | Fixed |
-| Cooldown after 1 stop-out | 48 hours | Fixed |
-| Cooldown after 2 stop-outs | 7 days + post-mortem | Fixed |
-| Drawdown kill switch | 15% from quarterly start | Fixed |
-| Asset | BTC/USD spot | Stage-2 eval: BTC + ETH (not before v2) |
+| Starting BTC (quarterly baseline) | 0.05342287 BTC (2026-04-24) | Quarterly reset |
+| Benchmark | Pure HODL (0% BTC growth) | Fixed |
+| Steady state | 80–90% BTC, 10–20% USD | 4+ weeks at end-of-window cash outside this range → revisit |
+| Risk per cycle | 0.5% B / 1.0% A (of BTC stack) | 4+ weeks of stable performance → consider 0.75% B / 1.5% A |
+| Max active cycles | 1 | Never — single-asset strategy |
+| Max new cycles / 7d | 2 | 4+ weeks at < 2 cycles/week avg → consider 3 |
+| Max fraction sold per cycle | 0.30 of stack | Measure missed-BTC opportunity on strong breakdowns |
+| Re-entry time cap | 72h → market buy | Measure fill rate and worst-case rebuy damage |
+| Minimum BTC R:R | 2.0 | Fixed |
+| Cooldown after 1 losing cycle | 48h | Fixed |
+| Cooldown after 2 losing cycles | 7d + post-mortem | Fixed |
+| Drawdown kill switch | 15% BTC from quarterly start | Fixed |
+| Asset | BTC/USD spot | Fixed for v1 |
 | Leverage | None | Never |
 
 ---
 
 ## 10. Open decisions (revisit after 4 weeks live)
 
-- [ ] Does the 2-entries-per-week cap leave too much cash idle in trending
-      quarters? If weekly review consistently shows "high-grade setups skipped
-      due to cap," raise to 3.
-- [ ] Does the 48h post-stop cooldown cost more than it saves? Measure: sum
-      of "missed A-grade setups during cooldown" vs "bot sanity preserved."
-- [ ] Should partials fire at +1.5R or +2R? Currently both fire. If runner
-      P&L consistently underperforms full-position exit, collapse the ladder.
-- [ ] Weekend gap defense (§2 rule 12) — is it actually firing helpfully, or
-      is it just cutting winners? Tag each invocation in the trade log.
-- [ ] Stablecoin de-peg defense (§8 rule 4) — BTC-in-wallet is safer than
-      USD-in-Coinbase during a de-peg, but is Coinbase custody itself a
-      worry? At $3K, probably no. Reconsider at $30K+.
+- [ ] Is the 30% max-per-cycle cap too tight in high-conviction setups?
+      Measure "missed BTC" at end of each strong breakdown.
+- [ ] Does the 72h re-entry time cap bail too often at losses? Consider
+      96h or 120h if weekly review shows >30% of cycles closing at the cap.
+- [ ] Should the re-entry use a tranche ladder (1/3 at target, 1/3 midway,
+      1/3 at time cap) instead of a single limit? Simpler single-order for v1.
+- [ ] Track BTC-denominated *and* USD-denominated P&L in parallel for 4
+      weeks — sometimes the divergence reveals regime bugs in the strategy.
+- [ ] Should the sell-trigger distance be capped relative to current price
+      (e.g., max 5% below)? Protects against accidentally selling into a
+      flash wick.
+- [ ] Re-entry should it auto-move DOWN if price breaks below the re-entry
+      level before filling? Current rule says no (never chase) but strict
+      "never move" may miss obvious deeper supports.
 
 ---
 
 ## 11. Why this playbook
 
-Every rule here has a specific reason. If you want to change one, match it
-against the reason first.
+Every rule here has a specific reason.
 
 | Rule | Why |
 |---|---|
-| Spot-only, no leverage | 100% of leveraged crypto bot "blowup" stories trace to a single bad leveraged trade. Spot drawdowns are recoverable; liquidation isn't. |
-| One position at a time | Eliminates correlation confusion — every open trade is the same asset, so "multiple positions" is actually "one bigger position," which the risk math doesn't capture. |
-| Max 2 entries / 7d | Overtrading is the #1 P&L killer in swing strategies. Crypto chop makes this worse, not better. |
-| Risk by grade, not fixed | Makes the rubric load-bearing. A stronger signal earns more size; a weaker signal earns less. |
-| Hard stop as GTC order | Mental stops don't work when the market is 24/7 and the bot sleeps between routine runs. |
-| Stop at technical level | A 7% stop is arbitrary; a stop below the last weekly swing low has a reason. Reasons survive; arbitrary numbers get front-run. |
-| Stops never move down | Moving a stop down is "hoping," which is not a strategy. |
-| Weekend gap defense | The 4.7 doc's parent bot traded stocks; weekends were free. For BTC, Saturday is the expensive day. |
-| 2:1 R:R minimum | With a 50% win rate, 2:1 is profitable. Below that, you're paying fees to break even. |
-| Management ladder | Full position to 2R leaves money on the table in strong moves and blows it up in fakeouts. The ladder banks some, runs some. |
-| Cooldown after stop-out | Revenge trading is the #2 P&L killer after overtrading. The cooldown is automated so it doesn't require discipline — the bot just can't trade. |
-| Drawdown kill switch | If the strategy is broken, you want the bot to stop before it drains the whole account. 15% is 4–5 max-risk losses in a row — past that, something's wrong at the strategy level, not the trade level. |
+| BTC-denominated everything | The goal is more sats. Measuring USD P&L lets a BTC-count-shrinking quarter look like a win during bull moves — exactly when the bot should be stacking. |
+| 80–90% BTC steady state | Cash reserve handles the first dip without needing to sell core stack. Holding >20% USD over multiple windows = strategy drift toward timing the market. |
+| Max 30% per cycle | A single thesis failure at 30% of stack is recoverable (1–2 good cycles back). At 100%, one bad call resets months of work. |
+| Sell + re-entry both placed immediately | A lone sell order is "timing the market." The re-entry is what makes it accumulation. If you can't name the buy-back level, you don't have the setup. |
+| 72h re-entry cap | USD is not the base currency. Holding USD longer than 72h is a bet that BTC goes lower — that bet is priced in at re-entry; extending it is doubling down. |
+| Sell-trigger never moves up | Moving a trigger toward price = chasing = locking in a BTC loss beyond the risk budget. |
+| Re-entry never moves up | Same reason on the buy side. |
+| 2:1 BTC R:R | Below 2:1, the 50%-win-rate math doesn't net sats after fees. Fees are paid in BTC (Coinbase taker ~0.4% round-trip), so they compound against the stack. |
+| Cooldown after losses | Revenge-cycling is the #1 BTC drainer in accumulation strategies — you sell at the wrong level, panic-buy higher, and do it again within the same day. |
+| BTC drawdown halt | If the strategy is broken, you want the bot to stop before the stack is gone. 15% in BTC terms is ~15 max-risk losses or fewer bigger ones — past that, the rubric is wrong, not the individual trade. |
 
 ---
 
 ## 12. Cross-reference
 
-- **How trades are executed:** [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) Part 5 (workflows)
-- **How setups are graded:** [../research/RESEARCH-AGENT-DESIGN.md](../research/RESEARCH-AGENT-DESIGN.md) §5 (rubric)
-- **Which APIs the bot calls:** [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) Part 4 (wrapper scripts)
-- **Memory files the bot reads:** `memory/TRADING-STRATEGY.md` (this file, canonicalized), `memory/TRADE-LOG.md`, `memory/RESEARCH-LOG.md`, `memory/WEEKLY-REVIEW.md`
+- **How cycles are executed:** [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) Part 5
+- **How setups are graded:** [../research/RESEARCH-AGENT-DESIGN-V2.md](../research/RESEARCH-AGENT-DESIGN-V2.md) §5
+- **Which APIs the bot calls:** [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) Part 4
+- **Memory files the bot reads:** `memory/TRADING-STRATEGY.md` (this file), `memory/TRADE-LOG.md`, `memory/RESEARCH-LOG.md`, `memory/WEEKLY-REVIEW.md`, `memory/PROJECT-CONTEXT.md`
