@@ -26,15 +26,19 @@ IMPORTANT — PERSISTENCE:
 
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md (cycle lifecycle rules §2 rules 12–19, §5)
+- memory/state.json (validate first: `python scripts/state.py`) — primary
+  source for active cycle ids, prices, sizing, time cap, and cooldown state.
 - tail of memory/TRADE-LOG.md — find the most recent OPEN cycle and
-  capture: sell_order_id, rebuy_order_id, sell_trigger_price,
-  rebuy_limit_price, worst_case_rebuy_price, btc_to_sell,
-  cycle_opened_at_utc, 72h_time_cap_utc, playbook_setup.
-- memory/PROJECT-CONTEXT.md — ACTIVE_CYCLE flag.
+  cross-check state.json.
+- memory/PROJECT-CONTEXT.md — legacy ACTIVE_CYCLE mirror.
 
 STEP 2 — Pull live state:
 python scripts/coinbase.py position
 python scripts/coinbase.py orders
+python scripts/coinbase.py order <sell_order_id>
+python scripts/coinbase.py order <rebuy_order_id>
+python scripts/coinbase.py fills <sell_order_id>
+python scripts/coinbase.py fills <rebuy_order_id>
 python scripts/coinbase.py quote BTC-USD
 
 STEP 3 — If ACTIVE_CYCLE=false (no open cycle) exit silent (no commit).
@@ -93,12 +97,12 @@ STEP 6 — Cycle close math (when 72h cap fires OR forced close):
   btc_rebuy_fill = usd_from_sell / market_buy_fill_price  (from fill response)
   btc_delta      = btc_rebuy_fill - btc_to_sell   # negative = sats lost
   If btc_delta < 0 → losing cycle:
-    Update PROJECT-CONTEXT:
+    Update memory/state.json and PROJECT-CONTEXT:
       LAST_LOSING_CYCLE_UTC=$NOW_UTC
       CONSECUTIVE_LOSING_CYCLES=<prev + 1>
   Else → winning or flat cycle:
     CONSECUTIVE_LOSING_CYCLES=0
-  Always: ACTIVE_CYCLE=false.
+  Always: ACTIVE_CYCLE=false and active_cycle_detail=null.
 
 STEP 7 — Phase C (re-entry limit filled — clean close):
   btc_rebuy_fill = rebuy_order.filled_size  (from orders response)
@@ -108,14 +112,15 @@ STEP 7 — Phase C (re-entry limit filled — clean close):
     CONSECUTIVE_LOSING_CYCLES=<prev + 1>
   Else:
     CONSECUTIVE_LOSING_CYCLES=0
-  ACTIVE_CYCLE=false.
+  ACTIVE_CYCLE=false and active_cycle_detail=null in memory/state.json;
+  mirror ACTIVE_CYCLE=false in PROJECT-CONTEXT.
   Append "Cycle closed (re-entry filled)" block to TRADE-LOG with
   btc_delta in sats and %.
 
 STEP 8 — Notification + commit:
   If action taken (state changed):
     bash scripts/telegram.sh "[CYCLE] <close type>: btc_delta ±N.NNNN (±X.X%). <playbook_setup>. Stack now N.NNNN BTC."
-    git add memory/TRADE-LOG.md memory/PROJECT-CONTEXT.md
+    git add memory/TRADE-LOG.md memory/PROJECT-CONTEXT.md memory/state.json
     git commit -m "manage $DATE $HOUR:00"
     git push origin main
     On push failure: git pull --rebase origin main, then push again.

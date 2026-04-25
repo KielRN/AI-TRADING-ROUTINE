@@ -7,6 +7,11 @@ showed the single-vendor thesis broken — ETF/exchange balances and dominance
 endpoints frozen. v2 replaces broken slices with free public sources and
 collapses the Python orchestrator into CLI wrappers composed by the routine.
 Retained here for history; do not build against v1.
+
+> **Do not use this file for implementation.** It describes the stale v1
+> USD-swing/single-vendor research plan. The actionable research design is
+> [RESEARCH-AGENT-DESIGN-V2.md](RESEARCH-AGENT-DESIGN-V2.md).
+
 **Companion docs:**
 - [EVALUATION-COINBASE-BTC.md](EVALUATION-COINBASE-BTC.md) — the swing-BTC playbook (hard rules, setup types, management ladder)
 - [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) — how the bot is built and deployed

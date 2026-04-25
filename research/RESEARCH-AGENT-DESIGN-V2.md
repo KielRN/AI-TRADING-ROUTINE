@@ -1,7 +1,9 @@
 # Research Agent Design v2 — BTC Accumulation on Free/Public Data
 
 **Prepared:** 2026-04-24 (revised 2026-04-24 for accumulation pivot)
-**Status:** Design. Supersedes [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md) v1.
+**Status:** Actionable design. Supersedes stale v1
+[RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md); build new research
+work from this file only.
 **Companion docs:**
 - [TRADING-STRATEGY.md](../memory/TRADING-STRATEGY.md) — the rulebook and 4 step-out setup types this pipeline must serve
 - [RESEARCH-DATA-STATUS.md](RESEARCH-DATA-STATUS.md) — per-datapoint live/stale/missing status (drives §3)

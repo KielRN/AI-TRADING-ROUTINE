@@ -20,7 +20,9 @@ IMPORTANT — PERSISTENCE:
   and push at STEP 6 — MANDATORY (tomorrow's 24h BTC delta depends on it).
 
 STEP 1 — Read memory:
-- memory/PROJECT-CONTEXT.md → quarterly starting BTC stack + ACTIVE_CYCLE flag
+- memory/state.json (validate first: `python scripts/state.py`) → quarterly
+  starting BTC stack + ACTIVE_CYCLE flag
+- memory/PROJECT-CONTEXT.md → legacy mirror of quarterly starting BTC stack + ACTIVE_CYCLE flag
 - Tail of memory/TRADE-LOG.md: find most recent EOD snapshot → yesterday's
   BTC stack count (needed for 24h BTC delta)
 - Count cycles OPENED today (sell-trigger + re-entry placed)

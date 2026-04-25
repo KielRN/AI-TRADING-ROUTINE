@@ -21,19 +21,22 @@ IMPORTANT — PERSISTENCE:
 - Fresh clone. File changes VANISH unless committed and pushed. MUST commit
   and push at STEP 10.
 
-IMPORTANT — WRAPPER GAPS (v2):
+IMPORTANT — WRAPPER REQUIREMENTS (v2):
 - The paired `LIMIT` buy GTC required by TRADING-STRATEGY §2 rule 9b is
   placed via `python scripts/coinbase.py limit-buy --usd <amt> --price <limit>`.
-  If that subcommand does not exist in this clone, log the gap, send one
-  Telegram `[BLOCKED]` alert, and exit WITHOUT placing the sell-trigger.
-  A lone sell-trigger is forbidden (§2 rule 9 — atomic pair).
+- Order lifecycle checks use `python scripts/coinbase.py order <order_id>`
+  and `python scripts/coinbase.py fills <order_id>`.
+- If any required wrapper call fails, log the failure, send one Telegram
+  `[BLOCKED]` alert, and exit WITHOUT leaving a half-cycle live. A lone
+  sell-trigger is forbidden (§2 rule 9 — atomic pair).
 
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
+- memory/state.json (validate first: `python scripts/state.py`)
 - Latest memory/research-reports/*.json (must be dated within last 45 min).
   If stale, log "research stale, skipping" and exit without commit.
-- tail of memory/TRADE-LOG.md (ACTIVE_CYCLE? cooldown? weekly cycle count?)
-- memory/PROJECT-CONTEXT.md (DRAWDOWN_HALT, ACTIVE_CYCLE,
+- tail of memory/TRADE-LOG.md (cross-check cycle history / weekly count)
+- memory/PROJECT-CONTEXT.md (legacy mirror of DRAWDOWN_HALT, ACTIVE_CYCLE,
   LAST_LOSING_CYCLE_UTC, CONSECUTIVE_LOSING_CYCLES)
 
 STEP 2 — Pull live state:
@@ -43,8 +46,8 @@ python scripts/coinbase.py orders
 python scripts/coinbase.py quote BTC-USD
 
 STEP 3 — Check halt + cooldown + active-cycle state:
-- DRAWDOWN_HALT=true in PROJECT-CONTEXT → skip, exit.
-- ACTIVE_CYCLE=true in PROJECT-CONTEXT → skip (one cycle at a time,
+- DRAWDOWN_HALT=true in state.json / PROJECT-CONTEXT → skip, exit.
+- ACTIVE_CYCLE=true in state.json / PROJECT-CONTEXT → skip (one cycle at a time,
   §2 rule 4). Manage routine handles the lifecycle.
 - LAST_LOSING_CYCLE_UTC within last 48h → skip (48h cooldown, §2 rule 17).
 - CONSECUTIVE_LOSING_CYCLES ≥ 2 and LAST_LOSING_CYCLE_UTC within last 7d →
@@ -136,7 +139,14 @@ STEP 8 — Persist cycle state:
     expected_rebuy_btc, worst_case_rebuy_btc, btc_R:R,
     sell_order_id, rebuy_order_id, cycle_opened_at_utc, 72h_time_cap_utc,
     weekly cycle count /2.
-- Update memory/PROJECT-CONTEXT.md flags:
+- Update memory/state.json:
+    active_cycle=true
+    active_cycle_detail={cycle_id, sell_order_id, rebuy_order_id,
+    btc_to_sell, sell_trigger_price, rebuy_limit_price,
+    worst_case_rebuy_price, cycle_opened_at_utc, time_cap_utc,
+    playbook_setup}
+    updated_at_utc=<now>
+- Update memory/PROJECT-CONTEXT.md legacy flags:
     ACTIVE_CYCLE=true
     (leave LAST_LOSING_CYCLE_UTC / CONSECUTIVE_LOSING_CYCLES untouched)
 
@@ -148,7 +158,7 @@ STEP 9 — Notification:
 - Otherwise: silent.
 
 STEP 10 — COMMIT AND PUSH (only if rebalance OR cycle fired):
-    git add memory/TRADE-LOG.md memory/PROJECT-CONTEXT.md
+    git add memory/TRADE-LOG.md memory/PROJECT-CONTEXT.md memory/state.json
     git commit -m "execute $DATE $HOUR:30"
     git push origin main
 On push failure: git pull --rebase origin main, then push again. Never force-push.

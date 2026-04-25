@@ -15,15 +15,18 @@ DOW=$(date -u +%u)   # 1=Mon ... 7=Sun. Saturday=6.
 
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
-- tail of memory/TRADE-LOG.md — find OPEN cycle: sell_order_id,
-  rebuy_order_id, sell_trigger_price, rebuy_limit_price,
-  worst_case_rebuy_price, btc_to_sell, cycle_opened_at_utc,
-  72h_time_cap_utc, playbook_setup.
-- memory/PROJECT-CONTEXT.md → ACTIVE_CYCLE flag.
+- memory/state.json (validate first: `python scripts/state.py`) — primary
+  source for active cycle ids, prices, sizing, time cap, and cooldown state.
+- tail of memory/TRADE-LOG.md — cross-check state.json.
+- memory/PROJECT-CONTEXT.md → legacy ACTIVE_CYCLE mirror.
 
 STEP 2 — Pull live state:
 python scripts/coinbase.py position
 python scripts/coinbase.py orders
+python scripts/coinbase.py order <sell_order_id>
+python scripts/coinbase.py order <rebuy_order_id>
+python scripts/coinbase.py fills <sell_order_id>
+python scripts/coinbase.py fills <rebuy_order_id>
 python scripts/coinbase.py quote BTC-USD
 
 STEP 3 — If ACTIVE_CYCLE=false exit silent.

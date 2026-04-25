@@ -8,7 +8,9 @@ Daily delta is in sats and %, not dollars. Ultra-concise.
 DATE=$(date -u +%Y-%m-%d)
 
 STEP 1 — Read memory:
-- memory/PROJECT-CONTEXT.md → quarterly starting BTC stack + ACTIVE_CYCLE flag
+- memory/state.json (validate first: `python scripts/state.py`) → quarterly
+  starting BTC stack + ACTIVE_CYCLE flag
+- memory/PROJECT-CONTEXT.md → legacy mirror of quarterly starting BTC stack + ACTIVE_CYCLE flag
 - Tail of memory/TRADE-LOG.md → most recent EOD snapshot for yesterday's BTC stack
 - Count cycles OPENED today, CLOSED today (W/L/flat), OPENED in rolling 7d
 

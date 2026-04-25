@@ -5,7 +5,8 @@ Usage:
     python scripts/coinbase.py <subcommand> [args...]
 
 Subcommands:
-    account, position, quote, orders, buy, sell, stop, cancel, cancel-all, close
+    account, position, quote, product, orders, order, fills, buy, limit-buy,
+    sell, stop, cancel, cancel-all, close
 """
 from __future__ import annotations
 
@@ -79,23 +80,38 @@ ENV_FILE = ROOT / ".env"
 if load_dotenv and ENV_FILE.exists():
     load_dotenv(ENV_FILE)
 
-API_KEY = os.getenv("COINBASE_API_KEY")
-API_SECRET = os.getenv("COINBASE_API_SECRET")
+_CLIENT: RESTClient | None = None
 
-if not API_KEY:
-    print("COINBASE_API_KEY not set in environment", file=sys.stderr)
-    sys.exit(3)
-if not API_SECRET:
-    print("COINBASE_API_SECRET not set in environment", file=sys.stderr)
-    sys.exit(3)
 
-client = RESTClient(api_key=API_KEY, api_secret=API_SECRET)
+def _client() -> RESTClient:
+    """Create the Coinbase client lazily so tests can import this module."""
+    global _CLIENT
+    if _CLIENT is not None:
+        return _CLIENT
+
+    api_key = os.getenv("COINBASE_API_KEY")
+    api_secret = os.getenv("COINBASE_API_SECRET")
+
+    if not api_key:
+        print("COINBASE_API_KEY not set in environment", file=sys.stderr)
+        sys.exit(3)
+    if not api_secret:
+        print("COINBASE_API_SECRET not set in environment", file=sys.stderr)
+        sys.exit(3)
+
+    _CLIENT = RESTClient(api_key=api_key, api_secret=api_secret)
+    return _CLIENT
+
+
+def _as_dict(obj):
+    if hasattr(obj, "to_dict"):
+        obj = obj.to_dict()
+    return obj
 
 
 def _dump(obj) -> None:
     """Dump any SDK response as pretty JSON for the agent to parse."""
-    if hasattr(obj, "to_dict"):
-        obj = obj.to_dict()
+    obj = _as_dict(obj)
     print(json.dumps(obj, indent=2, default=str))
 
 
@@ -105,7 +121,119 @@ def _q(n: Decimal, places: int) -> str:
     return str(n.quantize(quant, rounding=ROUND_DOWN))
 
 
+def _order_config(order: dict) -> tuple[str | None, dict]:
+    cfg = order.get("order_configuration") or order.get("order_config") or {}
+    if not isinstance(cfg, dict):
+        return None, {}
+    for name, value in cfg.items():
+        if isinstance(value, dict):
+            return name, value
+    return None, {}
+
+
+def _pick(order: dict, cfg: dict, *keys: str):
+    for key in keys:
+        if key in order and order[key] not in ("", None):
+            return order[key]
+        if key in cfg and cfg[key] not in ("", None):
+            return cfg[key]
+    return None
+
+
+def normalize_order(order_obj: dict) -> dict:
+    """Normalize Coinbase order-ish objects to stable fields for routines."""
+    order = _as_dict(order_obj)
+    if not isinstance(order, dict):
+        return {"raw": order}
+
+    # CreateOrderResponse nests the useful fields under success_response.
+    if "success_response" in order and isinstance(order["success_response"], dict):
+        base = dict(order["success_response"])
+        base["success"] = order.get("success")
+        if order.get("error_response"):
+            base["error_response"] = order.get("error_response")
+        order = base
+
+    cfg_name, cfg = _order_config(order)
+    order_type = order.get("order_type") or cfg_name
+
+    return {
+        "order_id": order.get("order_id"),
+        "client_order_id": order.get("client_order_id"),
+        "product_id": order.get("product_id"),
+        "side": order.get("side"),
+        "type": order_type,
+        "status": order.get("status"),
+        "time_in_force": order.get("time_in_force"),
+        "base_size": _pick(order, cfg, "base_size"),
+        "quote_size": _pick(order, cfg, "quote_size"),
+        "limit_price": _pick(order, cfg, "limit_price"),
+        "stop_price": _pick(order, cfg, "stop_price"),
+        "stop_direction": _pick(order, cfg, "stop_direction"),
+        "post_only": _pick(order, cfg, "post_only"),
+        "filled_size": order.get("filled_size"),
+        "filled_value": order.get("filled_value"),
+        "average_fill_price": order.get("average_filled_price")
+        or order.get("average_fill_price"),
+        "total_fees": order.get("total_fees") or order.get("commission"),
+        "number_of_fills": order.get("number_of_fills"),
+        "created_time": order.get("created_time"),
+        "last_fill_time": order.get("last_fill_time"),
+        "success": order.get("success"),
+        "reject_reason": order.get("reject_reason"),
+        "reject_message": order.get("reject_message"),
+    }
+
+
+def normalize_order_response(resp) -> dict:
+    data = _as_dict(resp)
+    if isinstance(data, dict) and isinstance(data.get("orders"), list):
+        return {
+            "orders": [normalize_order(o) for o in data["orders"]],
+            "cursor": data.get("cursor"),
+            "has_next": data.get("has_next"),
+        }
+    if isinstance(data, dict) and isinstance(data.get("order"), dict):
+        return {"order": normalize_order(data["order"])}
+    if isinstance(data, dict) and "success_response" in data:
+        return {"order": normalize_order(data)}
+    return data
+
+
+def summarize_fills(resp) -> dict:
+    data = _as_dict(resp)
+    fills = data.get("fills", []) if isinstance(data, dict) else []
+    total_size = Decimal("0")
+    total_value = Decimal("0")
+    total_fees = Decimal("0")
+    normalized = []
+    for fill in fills:
+        fill = _as_dict(fill)
+        if not isinstance(fill, dict):
+            continue
+        price = Decimal(str(fill.get("price", "0") or "0"))
+        size = Decimal(str(fill.get("size", "0") or "0"))
+        commission = Decimal(str(fill.get("commission", "0") or "0"))
+        total_size += size
+        total_value += price * size
+        total_fees += commission
+        normalized.append(fill)
+    average_fill_price = total_value / total_size if total_size else None
+    return {
+        "fills": normalized,
+        "summary": {
+            "fill_count": len(normalized),
+            "total_size": str(total_size),
+            "total_value": str(total_value),
+            "average_fill_price": str(average_fill_price) if average_fill_price else None,
+            "total_fees": str(total_fees),
+        },
+        "cursor": data.get("cursor") if isinstance(data, dict) else None,
+    }
+
+
 def cmd_account(args) -> None:
+    client = _client()
     accounts = client.get_accounts()
     usd_bal = Decimal("0")
     btc_bal = Decimal("0")
@@ -128,6 +256,7 @@ def cmd_account(args) -> None:
 
 
 def cmd_position(args) -> None:
+    client = _client()
     accounts = client.get_accounts()
     btc_bal = Decimal("0")
     for a in accounts["accounts"]:
@@ -145,6 +274,7 @@ def cmd_position(args) -> None:
 
 
 def cmd_quote(args) -> None:
+    client = _client()
     product = args.product or PRODUCT
     bid_ask = client.get_best_bid_ask(product_ids=[product])
     pb = bid_ask["pricebooks"][0]
@@ -157,12 +287,29 @@ def cmd_quote(args) -> None:
 
 
 def cmd_orders(args) -> None:
+    client = _client()
     status = args.status.upper() if args.status else "OPEN"
     resp = client.list_orders(order_status=[status], product_ids=[PRODUCT])
-    _dump(resp)
+    _dump(normalize_order_response(resp))
+
+
+def cmd_order(args) -> None:
+    resp = _client().get_order(args.order_id)
+    _dump(normalize_order_response(resp))
+
+
+def cmd_fills(args) -> None:
+    resp = _client().get_fills(order_ids=[args.order_id], product_ids=[PRODUCT])
+    _dump(summarize_fills(resp))
+
+
+def cmd_product(args) -> None:
+    product = args.product or PRODUCT
+    _dump(_client().get_product(product_id=product))
 
 
 def cmd_buy(args) -> None:
+    client = _client()
     coid = str(uuid.uuid4())
     if args.usd:
         usd = Decimal(args.usd).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
@@ -184,7 +331,31 @@ def cmd_buy(args) -> None:
     _dump(resp)
 
 
+def cmd_limit_buy(args) -> None:
+    client = _client()
+    coid = str(uuid.uuid4())
+    limit_price = Decimal(args.price)
+    if args.usd:
+        usd = Decimal(args.usd).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        btc = usd / limit_price
+    elif args.base:
+        btc = Decimal(args.base)
+    else:
+        print("usage: limit-buy --usd <amt> OR --base <btc>", file=sys.stderr)
+        sys.exit(1)
+
+    resp = client.limit_order_gtc_buy(
+        client_order_id=coid,
+        product_id=PRODUCT,
+        base_size=_q(btc, 8),
+        limit_price=str(limit_price),
+        post_only=args.post_only,
+    )
+    _dump(normalize_order_response(resp))
+
+
 def cmd_sell(args) -> None:
+    client = _client()
     coid = str(uuid.uuid4())
     if args.pct is not None:
         accounts = client.get_accounts()
@@ -215,6 +386,7 @@ def cmd_sell(args) -> None:
 
 
 def cmd_stop(args) -> None:
+    client = _client()
     coid = str(uuid.uuid4())
     resp = client.stop_limit_order_gtc_sell(
         client_order_id=coid,
@@ -228,12 +400,13 @@ def cmd_stop(args) -> None:
 
 
 def cmd_cancel(args) -> None:
-    resp = client.cancel_orders(order_ids=[args.order_id])
+    resp = _client().cancel_orders(order_ids=[args.order_id])
     _dump(resp)
 
 
 def cmd_cancel_all(args) -> None:
-    open_orders = client.list_orders(order_status=["OPEN"], product_ids=[PRODUCT])
+    client = _client()
+    open_orders = _as_dict(client.list_orders(order_status=["OPEN"], product_ids=[PRODUCT]))
     ids = [o["order_id"] for o in open_orders.get("orders", [])]
     if not ids:
         _dump({"cancelled": 0, "order_ids": []})
@@ -243,6 +416,14 @@ def cmd_cancel_all(args) -> None:
 
 
 def cmd_close(args) -> None:
+    if not args.confirm_sell_all:
+        print(
+            "close sells the entire available BTC balance; rerun with "
+            "--confirm-sell-all to proceed",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    client = _client()
     accounts = client.get_accounts()
     btc_bal = Decimal("0")
     for a in accounts["accounts"]:
@@ -270,12 +451,28 @@ def main() -> None:
     sp = sub.add_parser("quote")
     sp.add_argument("product", nargs="?", default=PRODUCT)
 
+    sp = sub.add_parser("product")
+    sp.add_argument("product", nargs="?", default=PRODUCT)
+
     sp = sub.add_parser("orders")
     sp.add_argument("status", nargs="?", default="OPEN")
+
+    sp = sub.add_parser("order")
+    sp.add_argument("order_id")
+
+    sp = sub.add_parser("fills")
+    sp.add_argument("order_id")
 
     sp = sub.add_parser("buy")
     sp.add_argument("--usd")
     sp.add_argument("--base")
+
+    sp = sub.add_parser("limit-buy")
+    g = sp.add_mutually_exclusive_group(required=True)
+    g.add_argument("--usd")
+    g.add_argument("--base")
+    sp.add_argument("--price", required=True)
+    sp.add_argument("--post-only", action="store_true")
 
     sp = sub.add_parser("sell")
     sp.add_argument("--pct", type=Decimal)
@@ -290,7 +487,8 @@ def main() -> None:
     sp.add_argument("order_id")
 
     sub.add_parser("cancel-all")
-    sub.add_parser("close")
+    sp = sub.add_parser("close")
+    sp.add_argument("--confirm-sell-all", action="store_true")
 
     args = p.parse_args()
 
@@ -298,8 +496,12 @@ def main() -> None:
         "account": cmd_account,
         "position": cmd_position,
         "quote": cmd_quote,
+        "product": cmd_product,
         "orders": cmd_orders,
+        "order": cmd_order,
+        "fills": cmd_fills,
         "buy": cmd_buy,
+        "limit-buy": cmd_limit_buy,
         "sell": cmd_sell,
         "stop": cmd_stop,
         "cancel": cmd_cancel,

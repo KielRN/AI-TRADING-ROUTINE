@@ -26,9 +26,10 @@ IMPORTANT — PERSISTENCE:
 
 STEP 1 — Read memory for context:
 - memory/TRADING-STRATEGY.md (rulebook — four step-out setups, §3)
-- tail of memory/TRADE-LOG.md (ACTIVE_CYCLE? cooldown state? weekly cycle count?)
+- memory/state.json (validate first: `python scripts/state.py`)
+- tail of memory/TRADE-LOG.md (cross-check cycle history / weekly count)
 - tail of memory/RESEARCH-LOG.md
-- memory/PROJECT-CONTEXT.md (DRAWDOWN_HALT, ACTIVE_CYCLE,
+- memory/PROJECT-CONTEXT.md (legacy mirror of DRAWDOWN_HALT, ACTIVE_CYCLE,
   LAST_LOSING_CYCLE_UTC, CONSECUTIVE_LOSING_CYCLES)
 
 STEP 2 — Pull live state:

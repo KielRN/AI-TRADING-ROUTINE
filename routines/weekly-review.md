@@ -26,7 +26,8 @@ STEP 1 — Read memory for full week context:
 - ALL this week's entries in memory/RESEARCH-LOG.md
 - ALL this week's JSON reports in memory/research-reports/
 - memory/TRADING-STRATEGY.md
-- memory/PROJECT-CONTEXT.md (quarterly starting BTC, current flags)
+- memory/state.json (validate first: `python scripts/state.py`)
+- memory/PROJECT-CONTEXT.md (legacy mirror of quarterly starting BTC, current flags)
 
 STEP 2 — Pull week-end state:
 python scripts/coinbase.py account

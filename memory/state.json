@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": null,
+  "quarterly_start_btc": "0.05342287",
+  "drawdown_halt": false,
+  "active_cycle": false,
+  "active_cycle_detail": null,
+  "last_losing_cycle_utc": null,
+  "consecutive_losing_cycles": 0,
+  "cycles_opened": []
+}

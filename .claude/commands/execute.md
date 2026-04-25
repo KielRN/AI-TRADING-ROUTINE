@@ -10,18 +10,19 @@ Resolve timestamps via:
 DATE=$(date -u +%Y-%m-%d)
 HOUR=$(date -u +%H)
 
-WRAPPER GAP (v2): the paired `LIMIT` buy is placed via
-`python scripts/coinbase.py limit-buy --usd <amt> --price <limit>`. If
-that subcommand does not exist in this clone, log the gap and exit
-WITHOUT placing the sell-trigger (a lone sell-trigger is forbidden,
-TRADING-STRATEGY §2 rule 9).
+WRAPPER REQUIREMENTS (v2): the paired `LIMIT` buy is placed via
+`python scripts/coinbase.py limit-buy --usd <amt> --price <limit>`.
+Order lifecycle checks use `python scripts/coinbase.py order <order_id>`
+and `python scripts/coinbase.py fills <order_id>`. If any required wrapper
+call fails, log the failure and exit WITHOUT leaving a half-cycle live.
 
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
+- memory/state.json (validate first: `python scripts/state.py`)
 - Latest memory/research-reports/*.json (must be dated within last 45 min).
   If stale, log "research stale, skipping".
-- tail of memory/TRADE-LOG.md (ACTIVE_CYCLE? cooldown? weekly cycle count?)
-- memory/PROJECT-CONTEXT.md (DRAWDOWN_HALT, ACTIVE_CYCLE,
+- tail of memory/TRADE-LOG.md (cross-check cycle history / weekly count)
+- memory/PROJECT-CONTEXT.md (legacy mirror of DRAWDOWN_HALT, ACTIVE_CYCLE,
   LAST_LOSING_CYCLE_UTC, CONSECUTIVE_LOSING_CYCLES)
 
 STEP 2 — Pull live state:
@@ -31,8 +32,8 @@ python scripts/coinbase.py orders
 python scripts/coinbase.py quote BTC-USD
 
 STEP 3 — Check halt + cooldown + active-cycle state:
-- DRAWDOWN_HALT=true → skip.
-- ACTIVE_CYCLE=true → skip (one cycle at a time, §2 rule 4).
+- DRAWDOWN_HALT=true in state.json / PROJECT-CONTEXT → skip.
+- ACTIVE_CYCLE=true in state.json / PROJECT-CONTEXT → skip (one cycle at a time, §2 rule 4).
 - LAST_LOSING_CYCLE_UTC within last 48h → skip (§2 rule 17).
 - CONSECUTIVE_LOSING_CYCLES ≥ 2 and within last 7d → skip (§2 rule 18).
 - Cycles opened in rolling 7d already ≥ 2 → skip (§2 rule 5).
@@ -102,7 +103,10 @@ STEP 8 — Persist cycle state:
 - Append full cycle-checklist block (§4) to TRADE-LOG with all fields
   including sell_order_id, rebuy_order_id, cycle_opened_at_utc,
   72h_time_cap_utc, weekly cycle count /2.
-- PROJECT-CONTEXT: ACTIVE_CYCLE=true.
+- memory/state.json: active_cycle=true and active_cycle_detail populated with
+  cycle_id, sell_order_id, rebuy_order_id, sizing, prices, opened time, cap,
+  and playbook_setup.
+- PROJECT-CONTEXT legacy mirror: ACTIVE_CYCLE=true.
 
 STEP 9 — Notification:
 - Admin rebalance: bash scripts/telegram.sh "[ADMIN] Rebalance: ..."

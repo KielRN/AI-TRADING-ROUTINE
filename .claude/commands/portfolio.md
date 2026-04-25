@@ -13,10 +13,11 @@ Format as a single concise summary:
 
 Portfolio — <today UTC>
 Equity: $X | USD: $X | BTC: N.NNNN ($X)
-Position: [none | entry $X, current $X, unrealized ±X% (±X.XR), stop $X]
+Stack state: BTC by value X.X% | USD reserve X.X% (target 10-20%)
+Active cycle: [none | Phase A/B/C/D, sell-trigger $X, rebuy $Y, cap <UTC>]
 
 Open orders:
-| TYPE | SIDE | size | stop/limit | order_id |
+| TYPE | SIDE | size | stop/limit | status | order_id |
 
-No commentary unless something is broken (open position without a stop, or
-a stop above current price for a long).
+No commentary unless something is broken: a lone sell-trigger, a lone re-entry,
+ACTIVE_CYCLE mismatched with live orders, or USD reserve outside target.

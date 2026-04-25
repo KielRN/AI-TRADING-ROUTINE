@@ -2,7 +2,8 @@
 
 **Prepared:** 2026-04-23
 **Status:** Parking-lot eval. Not scheduled. Revisit if Chartinspect Pro proves
-insufficient after Phase 1 verification (see RESEARCH-AGENT-DESIGN.md §9).
+insufficient after Phase 1 verification in
+[RESEARCH-AGENT-DESIGN-V2.md](RESEARCH-AGENT-DESIGN-V2.md).
 
 Two parallel questions the user raised:
 
@@ -90,8 +91,8 @@ Not "build everything" but "slot specific gaps":
 - **On-chain from Coin Metrics Community** — free tier has BTC exchange flow
   (3x/day refresh, 24h delay). Lower fidelity than Chartinspect but free.
 
-The hybrid path is already baked into RESEARCH-AGENT-DESIGN.md §9 Phase 1 as
-the fallback for Chartinspect verification gaps.
+The hybrid path is already baked into RESEARCH-AGENT-DESIGN-V2.md as the
+fallback for Chartinspect verification gaps.
 
 ---
 

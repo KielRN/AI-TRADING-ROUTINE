@@ -1,7 +1,9 @@
 # BTC/USD Swing Playbook — Coinbase Advanced Trade
 
 **Prepared:** 2026-04-22 (v1)
-**Status:** Strategy playbook. This is the rulebook the bot reads every session.
+**Status:** **SUPERSEDED 2026-04-24** by
+[`memory/TRADING-STRATEGY.md`](memory/TRADING-STRATEGY.md). Retained for v1
+history only; do not use this file as the active rulebook.
 **Companion docs:**
 - [Opus 4.7 Trading Bot — Setup Guide.md](Opus%204.7%20Trading%20Bot%20—%20Setup%20Guide.md) — how the bot is built and deployed
 - [research/RESEARCH-AGENT-DESIGN.md](research/RESEARCH-AGENT-DESIGN.md) — the 5-point rubric that grades each setup

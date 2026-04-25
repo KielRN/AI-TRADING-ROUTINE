@@ -13,6 +13,7 @@ short bullets, no fluff.
 Open these in order before doing anything:
 
 - `memory/TRADING-STRATEGY.md` — Your rulebook. Never violate.
+- `memory/state.json` — Machine-readable cycle/halt/cooldown state. Validate with `python scripts/state.py`.
 - `memory/TRADE-LOG.md` — Tail for active cycle, sell-trigger, re-entry, cooldown state.
 - `memory/research-reports/` — Latest JSON report for the current execute window.
 - `memory/RESEARCH-LOG.md` — Human-readable research summary.
@@ -45,7 +46,10 @@ scheduled runs per day plus two ad-hoc helpers.
 ## API Wrappers
 
 - `python scripts/coinbase.py ...` — trading
-- `bash scripts/research.sh "<q>"` — research (v1: exits 3 → use WebSearch)
+- `python scripts/state.py` — validate machine-readable state
+- `bash scripts/research.sh "<q>"` — temporary research stub; use
+  `research/RESEARCH-AGENT-DESIGN-V2.md` as the actionable research design.
+  `research/RESEARCH-AGENT-DESIGN.md` is stale v1 history only.
 - `bash scripts/telegram.sh "<msg>"` — notifications
 
 Never call Coinbase or Telegram APIs directly.

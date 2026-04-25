@@ -1,5 +1,11 @@
 # Opus 4.7 Trading Bot — Setup Guide (BTC Swing Edition)
 
+> **Status note (2026-04-25):** This setup guide contains historical v1
+> USD-swing sections. The active strategy is the v2 BTC-accumulation playbook
+> in `memory/TRADING-STRATEGY.md`, and the actionable research design is
+> `research/RESEARCH-AGENT-DESIGN-V2.md`. Treat v1 examples in this guide as
+> archival unless they have been explicitly ported to v2.
+
 *A complete blueprint for building an autonomous, cloud-scheduled swing
 trading agent for BTC/USD on Coinbase Advanced Trade, on top of Claude Code.*
 
@@ -315,7 +321,7 @@ bot for trading notifications only).
 bash scripts/telegram.sh "<markdown message>"
 ```
 
-Graceful fallback: if `TELEGRAM_BOT_TOKEN` or `TELEGRAM_CHAT_ID` is missing,
+Graceful fallback: if `TELEGRAM_BOT_TOKEN` or `ALLOWED_CHAT_IDS` is missing,
 the script appends the message to a local fallback file
 (`DAILY-SUMMARY.md`) and exits 0. The agent never crashes on missing
 notification credentials.
@@ -576,7 +582,7 @@ In the routine's environment config, add:
 COINBASE_API_KEY          (required — CDP API key, format "organizations/.../apiKeys/...")
 COINBASE_API_SECRET       (required — EC private key PEM, entire string including BEGIN/END lines)
 TELEGRAM_BOT_TOKEN        (required — from @BotFather, format "123456789:ABC...")
-TELEGRAM_CHAT_ID          (required — numeric chat ID, can be negative for groups)
+ALLOWED_CHAT_IDS          (required — single chat ID or comma-separated IDs)
 ```
 
 No PERPLEXITY_* vars (v1 doesn't use Perplexity). No research-backend vars
@@ -591,7 +597,8 @@ until v2 ships.
 4. Message your new bot with any text (e.g., `/start`).
 5. In a browser, visit
    `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your numeric
-   chat ID in the JSON response. Copy it → `TELEGRAM_CHAT_ID`.
+   chat ID in the JSON response. Copy it → `ALLOWED_CHAT_IDS`. For multiple
+   recipients, use a comma-separated list with no secrets in the repo.
 6. **Do NOT reuse the TxAI Assistant bot.** That bot is for inbound user
    commands; this one is for outbound trading notifications only.
 
@@ -866,7 +873,7 @@ MHcCAQEE...
 
 # Telegram (dedicated bot for trading notifications — NOT the TxAI bot)
 TELEGRAM_BOT_TOKEN=123456789:ABCdef-your-token-here
-TELEGRAM_CHAT_ID=123456789
+ALLOWED_CHAT_IDS=123456789
 ```
 
 ---
@@ -1220,7 +1227,7 @@ fi
 
 stamp="$(date -u '+%Y-%m-%d %H:%M UTC')"
 
-if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOWED_CHAT_IDS:-}" ]]; then
     printf "\n---\n## %s (fallback — Telegram not configured)\n%s\n" "$stamp" "$msg" >> "$FALLBACK"
     echo "[telegram fallback] appended to DAILY-SUMMARY.md"
     echo "$msg"
@@ -1232,11 +1239,18 @@ if [[ ${#msg} -gt 4000 ]]; then
     msg="${msg:0:3990}…"
 fi
 
-curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-    --data-urlencode "text=${msg}" \
-    --data-urlencode "parse_mode=Markdown" \
-    --data-urlencode "disable_web_page_preview=true"
+# Send to each chat ID in the comma-separated ALLOWED_CHAT_IDS list.
+IFS=',' read -ra CHAT_IDS <<< "${ALLOWED_CHAT_IDS}"
+for raw_id in "${CHAT_IDS[@]}"; do
+    chat_id="${raw_id// /}"
+    [[ -z "$chat_id" ]] && continue
+    curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        --data-urlencode "chat_id=${chat_id}" \
+        --data-urlencode "text=${msg}" \
+        --data-urlencode "parse_mode=Markdown" \
+        --data-urlencode "disable_web_page_preview=true"
+    echo
+done
 
 echo
 ```
@@ -1263,12 +1277,12 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 IMPORTANT — ENVIRONMENT VARIABLES:
 - Every API key is ALREADY exported: COINBASE_API_KEY, COINBASE_API_SECRET,
-  TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+  TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_IDS.
 - There is NO .env file in this repo and you MUST NOT create, write, or source one.
 - If a wrapper prints "KEY not set in environment" → STOP, send one Telegram
   alert naming the missing var, and exit.
 - Verify env vars BEFORE any wrapper call:
-    for v in COINBASE_API_KEY COINBASE_API_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+    for v in COINBASE_API_KEY COINBASE_API_SECRET TELEGRAM_BOT_TOKEN ALLOWED_CHAT_IDS; do
       [[ -n "${!v:-}" ]] && echo "$v: set" || echo "$v: MISSING"
     done
 

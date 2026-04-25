@@ -1,9 +1,14 @@
 # Research Pipeline — Datapoints & Collection Times
 
-**Prepared:** 2026-04-23 (v1.1 single-vendor — derived from RESEARCH-AGENT-DESIGN.md §2.1, §5, §8.1)
-**Status:** Reference for building `scripts/research/sources/*.py` collectors.
+**Prepared:** 2026-04-23 (v1.1 single-vendor; superseded by v2)
+**Status:** Historical v1 cadence reference. For new implementation work, use
+[`RESEARCH-AGENT-DESIGN-V2.md`](RESEARCH-AGENT-DESIGN-V2.md); v2 replaces the
+monolithic `scripts/research/sources/*.py` collector plan with standalone CLI
+wrappers composed by `scripts/research.sh`.
 
-Pipeline runs **twice daily at 00:00 UTC and 12:00 UTC** (see RESEARCH-AGENT-DESIGN.md §6). Every datapoint below is fetched at both windows unless otherwise noted.
+The v2 pipeline still runs **twice daily at 00:00 UTC and 12:00 UTC** (see
+RESEARCH-AGENT-DESIGN-V2.md §6). Treat the datapoint table below as historical
+v1 detail unless a row also appears in the v2 design.
 
 - **Native cadence** = how often the upstream source updates.
 - **Fetch** = when our pipeline pulls it.
