@@ -18,6 +18,8 @@ complete and tested end to end.
 - Guarded `coinbase.py close` behind `--confirm-sell-all`.
 - Aligned direct Python dependencies across `requirements.txt` and
   `pyproject.toml`.
+- Added a two-week paper trading harness and paper-state lane for forward
+  testing without live order placement.
 
 ## Live-Blocking Work
 
@@ -108,6 +110,6 @@ complete and tested end to end.
      values.
 
 3. Forward-test before live automation.
-   - Run in dry-run or shadow mode for several weeks.
+   - Run the two-week paper campaign in `PAPER-TRADING-TEST.md`.
    - Review false positives, blocked execution events, state drift, and
      rollback behavior before enabling live cycle opening.

@@ -24,7 +24,8 @@ clarified that research v2 is authoritative, guarded the all-stack `close`
 command behind explicit confirmation, aligned direct Python dependencies, and
 added unit tests for the new risk/state/Coinbase helper paths. The larger
 policy-layer, dry-run, idempotency, and end-to-end routine integration work
-remains.
+remains. A separate two-week paper trading lane was added after the safety pass
+to forward-test cycle decisions without live order placement.
 
 ## Critical Recommendations
 
@@ -293,7 +294,8 @@ Remaining recommended order:
 6. Build the research collector and candle/SR pipeline.
 7. Add CI, linting, secret scanning, and lockfile.
 8. Forward-test in dry-run/shadow mode for at least several weeks before
-   enabling cycle-opening automation.
+   enabling cycle-opening automation. The first paper-trading lane is
+   documented in `PAPER-TRADING-TEST.md`.
 
 ## Positive Notes
 

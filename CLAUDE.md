@@ -14,6 +14,7 @@ Open these in order before doing anything:
 
 - `memory/TRADING-STRATEGY.md` — Your rulebook. Never violate.
 - `memory/state.json` — Machine-readable cycle/halt/cooldown state. Validate with `python scripts/state.py`.
+- `memory/paper-trading/state.json` — Paper-only two-week validation state.
 - `memory/TRADE-LOG.md` — Tail for active cycle, sell-trigger, re-entry, cooldown state.
 - `memory/research-reports/` — Latest JSON report for the current execute window.
 - `memory/RESEARCH-LOG.md` — Human-readable research summary.
@@ -23,7 +24,8 @@ Open these in order before doing anything:
 ## Daily Workflows
 
 Defined in `.claude/commands/` (local) and `routines/` (cloud). Six
-scheduled runs per day plus two ad-hoc helpers.
+scheduled runs per day, two ad-hoc helpers, and a paper-trading validation
+workflow.
 
 ## Strategy Hard Rules (quick reference)
 
@@ -47,6 +49,8 @@ scheduled runs per day plus two ad-hoc helpers.
 
 - `python scripts/coinbase.py ...` — trading
 - `python scripts/state.py` — validate machine-readable state
+- `python scripts/paper_trade.py ...` — two-week paper trading harness; never
+  places live Coinbase orders
 - `bash scripts/research.sh "<q>"` — temporary research stub; use
   `research/RESEARCH-AGENT-DESIGN-V2.md` as the actionable research design.
   `research/RESEARCH-AGENT-DESIGN.md` is stale v1 history only.

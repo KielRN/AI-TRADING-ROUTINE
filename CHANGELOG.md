@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `memory/research-reports/2026-04-24-18.json` — first research run output (B-grade, FOMC Apr 28-29 catalyst, HOLD decision)
 - `scripts/risk_math.py` — tested BTC-denominated helper for active-cycle unrealized R math
 - `memory/state.json` and `scripts/state.py` — machine-readable cycle/halt/cooldown state seed plus validator.
+- `scripts/paper_trade.py`, `memory/paper-trading/state.json`, `PAPER-TRADING-TEST.md`, and paper-trading routine/command docs — two-week paper trading lane for v2 cycle forward testing without live order placement.
 
 ### Changed
 - **Strategy pivot (2026-04-24): USD-swing → BTC-accumulation.** Unit of account is now BTC, not USD. Benchmark is pure HODL (0% BTC growth per quarter) instead of risk-adjusted alpha vs buy-and-hold.

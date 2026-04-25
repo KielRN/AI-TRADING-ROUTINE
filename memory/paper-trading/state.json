@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "mode": "paper",
+  "status": "not_started",
+  "duration_days": 14,
+  "started_at_utc": null,
+  "ends_at_utc": null,
+  "updated_at_utc": null,
+  "starting_btc": "0",
+  "starting_usd": "0.00",
+  "starting_btc_price": "0.00",
+  "balances": {
+    "btc_available": "0",
+    "btc_locked": "0",
+    "usd_available": "0.00",
+    "usd_locked": "0.00"
+  },
+  "last_price": {
+    "bid": null,
+    "ask": null,
+    "time_utc": null
+  },
+  "active_cycle": null,
+  "cycles": [],
+  "events": []
+}
