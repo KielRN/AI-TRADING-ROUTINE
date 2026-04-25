@@ -143,6 +143,6 @@ The paper test is complete only when all are true:
 - A final weekly review records paper BTC delta, win/loss/flat count, blocked
   executions, and recommended policy changes before live automation.
 
-Passing this test does not by itself authorize live trading. The policy layer,
-dry-run default, idempotency, locks, held-balance handling, and CI gates in
-`REMAINING-WORK.md` still need to be complete.
+Passing this test does not by itself authorize live trading. The remaining
+held-balance/product metadata handling, CI gates, and final live-readiness
+review in `REMAINING-WORK.md` still need to be complete.

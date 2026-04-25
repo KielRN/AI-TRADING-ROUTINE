@@ -24,6 +24,11 @@ IMPORTANT — PERSISTENCE:
 - Fresh clone. File changes VANISH unless committed and pushed. Commit and
   push at STEP 8 only if cycle state changed.
 
+IMPORTANT — LIVE ORDER FLAGS:
+- Read-only Coinbase wrapper calls need no execution flag.
+- Every order-mutating Coinbase wrapper call in this cloud routine must
+  include `--live`; local command mirrors use `--dry-run`.
+
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md (cycle lifecycle rules §2 rules 12–19, §5)
 - memory/state.json (validate first: `python scripts/state.py`) — primary
@@ -59,15 +64,15 @@ STEP 5 — Phase-specific actions:
     - Thesis-break check: WebSearch last 12h BTC news. If a clear
       catalyst INVALIDATION fires (Fed walks back decision, flows reverse
       hard, major positive-for-BTC shock against the short thesis):
-        python scripts/coinbase.py cancel <sell_order_id>
-        python scripts/coinbase.py cancel <rebuy_order_id>
+        python scripts/coinbase.py cancel --live <sell_order_id>
+        python scripts/coinbase.py cancel --live <rebuy_order_id>
         Log "cycle aborted — thesis break (pre-trigger)".
         Update PROJECT-CONTEXT: ACTIVE_CYCLE=false. Zero BTC delta.
     - Weekend defense (§2 rule 19): if DOW == 6 AND current time is
       ≤4h from 00:00 UTC Saturday AND research bias has shifted bullish
       since cycle opened (consult latest memory/research-reports/*.json):
-        python scripts/coinbase.py cancel <sell_order_id>
-        python scripts/coinbase.py cancel <rebuy_order_id>
+        python scripts/coinbase.py cancel --live <sell_order_id>
+        python scripts/coinbase.py cancel --live <rebuy_order_id>
         Log "cycle aborted — weekend defense (pre-trigger, thesis deteriorating)".
         Update PROJECT-CONTEXT: ACTIVE_CYCLE=false. Zero BTC delta.
     - Else: no action.
@@ -75,16 +80,16 @@ STEP 5 — Phase-specific actions:
   Phase B (sell filled, re-entry pending):
     - Compute hours_since_sell = (now - sell_fill_time) in hours.
     - If hours_since_sell >= 72 AND rebuy still OPEN (§2 rule 15 time cap):
-        python scripts/coinbase.py cancel <rebuy_order_id>
+        python scripts/coinbase.py cancel --live <rebuy_order_id>
         # Market-buy with the entire remaining USD from the sell
         usd_from_sell = btc_to_sell × sell_fill_price   # recompute from fill, not trigger
-        python scripts/coinbase.py buy --usd <usd_from_sell>
+        python scripts/coinbase.py buy --live --usd <usd_from_sell>
         Capture market-buy fill. Go to STEP 6 (cycle close, worst case).
     - Weekend defense (§2 rule 19): if DOW == 6 AND ≤4h to 00:00 UTC
       Saturday AND (latest research shows deteriorating step-out thesis
       OR current price already above sell_fill_price):
-        python scripts/coinbase.py cancel <rebuy_order_id>
-        python scripts/coinbase.py buy --usd <usd_from_sell>
+        python scripts/coinbase.py cancel --live <rebuy_order_id>
+        python scripts/coinbase.py buy --live --usd <usd_from_sell>
         Go to STEP 6 (forced-close path, weekend_defense=true).
     - Thesis-break check (mid-cycle): as in Phase A but closes by
       market-buying the remaining USD immediately.

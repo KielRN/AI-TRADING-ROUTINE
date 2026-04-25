@@ -3,8 +3,9 @@
 This is the execution checklist distilled from `RECOMMENDATIONS.md` after the
 2026-04-25 safety pass.
 
-Do not enable automated live cycle opening until the live-blocking section is
-complete and tested end to end.
+Do not enable automated live cycle opening until the live-blocking section,
+held-balance/product metadata checks, CI gates, and paper forward-test are
+complete and reviewed end to end.
 
 ## Completed Safety Pass
 
@@ -20,43 +21,84 @@ complete and tested end to end.
   `pyproject.toml`.
 - Added a two-week paper trading harness and paper-state lane for forward
   testing without live order placement.
+- Added a tested live cycle-opening policy layer and wired execute workflows
+  to call it before paired sell-trigger plus re-entry order placement.
+- Added a tested `scripts/cycle_orders.py open-cycle` transaction helper for
+  dry-run paired cycle planning, explicit-live placement, and rollback when
+  the re-entry order fails.
+- Added tested atomic state transition helpers in `scripts/state.py`, including
+  cycle open, sell fill, clean close, forced close, cooldown updates, drawdown
+  halt updates, validation, and atomic state-file replacement.
+- Wired `scripts/cycle_orders.py open-cycle --live` to persist successful live
+  cycle opens into `memory/state.json` through the validator.
+- Added per-run idempotency keys, a local routine lock for live cycle-opening
+  writes, and live-order reload/recovery after uncertain Coinbase write
+  failures.
+- Normalized Coinbase order write/read responses across the wrapper and added
+  tests for accepted, rejected, terminal-status, exception-recovery, and
+  rollback cases.
 
 ## Live-Blocking Work
 
-1. Add a tested policy layer.
-   - Validate BTC-USD spot only.
-   - Enforce one active cycle.
-   - Enforce max 30 percent BTC stack per cycle.
-   - Enforce max two cycles per rolling seven days.
-   - Enforce cooldown, drawdown halt, data freshness, BTC R:R, re-entry below
-     sell-trigger, and USD reserve band.
-   - Call the policy layer before every live order path.
+1. [x] Add a tested policy layer. Completed 2026-04-25 continuation.
+   - `scripts/policy.py validate-cycle` validates BTC-USD spot only, one
+     active cycle, max 30 percent BTC stack per cycle, max two cycles per
+     rolling seven days, cooldown, drawdown halt, data freshness, BTC R:R,
+     re-entry below sell-trigger, current-price relation, and USD reserve
+     band.
+   - `tests/test_policy.py` covers pass, rejection, cap, cooldown, stale
+     research, reserve, price, and R:R cases.
+   - `scripts/cycle_orders.py`, `routines/execute.md`, and
+     `.claude/commands/execute.md` call the policy gate before the paired live
+     cycle order path can start.
+   - Direct order-wrapper bypass prevention is now covered by the dry-run/live
+     wrapper flags below.
 
-2. Add dry-run by default.
-   - Add `--dry-run` to all order-producing paths.
-   - Require an explicit live flag for real Coinbase orders.
-   - Dry-run the full paired sell-trigger plus re-entry placement.
-   - Dry-run rollback when the second order fails.
+2. [x] Add dry-run by default. Completed 2026-04-25 continuation.
+   - Added `--dry-run` / `--live` flags to Coinbase write paths; direct
+     wrapper calls now dry-run unless `--live` is explicit.
+   - Required an explicit live flag for real Coinbase order placement and
+     cancellation.
+   - `scripts/cycle_orders.py open-cycle --dry-run` plans the full paired
+     sell-trigger plus re-entry transaction.
+   - `--simulate-rebuy-failure` exercises the dry-run rollback path.
+   - In `--live`, the helper cancels the sell-trigger if the re-entry order
+     fails, and emits one stable JSON status: `planned`, `opened`,
+     `rolled_back`, or `blocked`.
 
-3. Make state writes code-owned and atomic.
-   - Add state transition helpers for cycle open, sell fill, clean close,
-     forced close, cooldown updates, and drawdown halt.
-   - Extend state with fill-phase fields such as `sell_filled_at_utc`,
-     `sell_fill_price`, `rebuy_fill_price`, and `phase`.
-   - Keep `memory/TRADE-LOG.md` as the human journal, but make order-writing
-     code update `memory/state.json` through the validator.
+3. [x] Make state writes code-owned and atomic. Completed 2026-04-25
+   continuation.
+   - `scripts/state.py` now owns validated state transitions for cycle open,
+     sell fill, clean close, forced close, cooldown updates, and drawdown halt
+     updates.
+   - Active-cycle state now carries `phase`, `sell_filled_at_utc`,
+     `sell_fill_price`, `rebuy_fill_price`, and related fill/close fields.
+   - `write_state_atomic()` validates before replacing `memory/state.json`.
+   - `scripts/cycle_orders.py open-cycle --live` writes successful live opens
+     into `memory/state.json`; dry-runs and rollbacks do not mark
+     `ACTIVE_CYCLE=true`.
+   - `tests/test_state.py` and `tests/test_cycle_orders.py` cover the state
+     transition and live-open persistence paths.
 
-4. Add idempotency and routine locks.
-   - Generate stable `client_order_id` values from `cycle_id` plus order role.
-   - Add an idempotency key per scheduled run.
-   - Add a lock file or remote lock around order-writing routines.
-   - Reload live order state after network failures before retrying.
+4. [x] Add idempotency and routine locks. Completed 2026-04-25 continuation.
+   - Stable `client_order_id` values are generated from `cycle_id` plus order
+     role.
+   - `scripts/cycle_orders.py open-cycle` accepts `--run-id` and emits an
+     idempotency key; default is `open-cycle:<cycle_id>`.
+   - Live cycle-opening writes are wrapped in a local atomic lock file at
+     `memory/.locks/cycle-orders.lock` unless explicitly disabled for tests.
+   - After uncertain Coinbase write exceptions, the helper reloads live open
+     orders by stable client order IDs and recovers matching sell/rebuy orders
+     before deciding whether rollback is required.
 
-5. Normalize all order responses.
-   - Make `buy`, `sell`, `stop`, `limit-buy`, `close`, `order`, and `orders`
-     emit the same stable local order schema.
-   - Cover accepted, rejected, partial fill, filled, cancelled, API failure,
-     and rollback cases in tests.
+5. [x] Normalize all order responses. Completed 2026-04-25 continuation.
+   - `buy`, `sell`, `stop`, `limit-buy`, `close`, `order`, and `orders` now
+     emit the same stable local order schema when an order response is present.
+   - Rejected Coinbase create-order responses map into `reject_reason` and
+     `reject_message`.
+   - Tests cover accepted live write normalization, rejected create-order
+     normalization, partial/filled/cancelled statuses, API exception recovery,
+     and rollback behavior.
 
 ## High Priority
 

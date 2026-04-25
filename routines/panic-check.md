@@ -18,6 +18,11 @@ IMPORTANT — PERSISTENCE:
 - Fresh clone. File changes VANISH unless committed and pushed. Only commit
   if a kill-switch fired.
 
+IMPORTANT — LIVE ORDER FLAGS:
+- Read-only Coinbase wrapper calls need no execution flag.
+- Every order-mutating Coinbase wrapper call in this cloud kill-switch routine
+  must include `--live`.
+
 STEP 1 — Pull live state:
 python scripts/coinbase.py account
 python scripts/coinbase.py position
@@ -49,8 +54,8 @@ A) Active-cycle BTC-loss breach (§8 rule 1):
    To verify the math, use:
      python scripts/risk_math.py cycle-r --btc-to-sell <btc> --sell-fill-price <fill> --current-ask <ask> --worst-case-rebuy-price <worst>
    If unrealized_R >= 1.5 (i.e. unrealized loss is 1.5x the planned budget):
-     python scripts/coinbase.py cancel <rebuy_order_id>
-     python scripts/coinbase.py buy --usd <usd_from_sell>     # force-close cycle
+     python scripts/coinbase.py cancel --live <rebuy_order_id>
+     python scripts/coinbase.py buy --live --usd <usd_from_sell>     # force-close cycle
      bash scripts/telegram.sh "[CRITICAL] Cycle blown. Force-closed at \$X, R=<R>. Re-entry should have caught this — investigate."
      Update memory/state.json and PROJECT-CONTEXT:
        ACTIVE_CYCLE=false
@@ -76,8 +81,8 @@ D) Stablecoin de-peg (§8 rule 4):
    python scripts/coinbase.py quote USDC-USD
    If bid < 0.98:
      If ACTIVE_CYCLE=true AND we are Phase B (sitting in USD):
-       python scripts/coinbase.py cancel <rebuy_order_id>
-       python scripts/coinbase.py buy --usd <usd_from_sell>    # rotate USD → BTC at market
+       python scripts/coinbase.py cancel --live <rebuy_order_id>
+       python scripts/coinbase.py buy --live --usd <usd_from_sell>    # rotate USD → BTC at market
       Update memory/state.json and PROJECT-CONTEXT: ACTIVE_CYCLE=false, active_cycle_detail=null.
        Append "de-peg forced re-entry" block to TRADE-LOG.
      Always:

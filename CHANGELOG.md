@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `scripts/risk_math.py` — tested BTC-denominated helper for active-cycle unrealized R math
 - `memory/state.json` and `scripts/state.py` — machine-readable cycle/halt/cooldown state seed plus validator.
 - `scripts/paper_trade.py`, `memory/paper-trading/state.json`, `PAPER-TRADING-TEST.md`, and paper-trading routine/command docs — two-week paper trading lane for v2 cycle forward testing without live order placement.
+- `scripts/policy.py` and `tests/test_policy.py` — executable live cycle-opening policy gate covering BTC-USD only, one active cycle, 30% sizing cap, rolling cycle cap, cooldown, drawdown, freshness, BTC R:R, price relation, and USD reserve band.
+- `scripts/coinbase.py` order-mutating subcommands now expose explicit
+  `--dry-run` / `--live` execution flags.
+- `scripts/cycle_orders.py` and `tests/test_cycle_orders.py` — code-owned
+  paired cycle order transaction with policy validation, dry-run planning,
+  explicit-live placement, and re-entry failure rollback.
 
 ### Changed
 - **Strategy pivot (2026-04-24): USD-swing → BTC-accumulation.** Unit of account is now BTC, not USD. Benchmark is pure HODL (0% BTC growth per quarter) instead of risk-adjusted alpha vs buy-and-hold.
@@ -44,6 +50,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `.claude/commands/{execute,manage,research,daily-summary,weekly-review}.md` — local mirrors of the above with the no-commit footer
 - `research/RESEARCH-AGENT-DESIGN-V2.md` — §3 setup-type tables rewritten to the four step-out tags. §1 purpose flipped from "buy-and-hold Sharpe alpha" to "grow BTC stack vs HODL = 0%". §6 routine-cadence row for `manage` now describes cycle lifecycle (sell-trigger fill detection, 72h cap, weekend defense) instead of the v1 §2.14 management ladder. §8 documents the trade-idea field renames (`entry`→`sell_trigger_price`, `target`→`rebuy_limit_price`, `stop` removed, new `worst_case_rebuy_price`) and the `playbook_setup` enum. ETF-flow note in §3.3 rewritten against the four step-out triggers
 - `.gitignore` — minor update (line ending normalization)
+- `routines/execute.md` and `.claude/commands/execute.md` now require the
+  executable policy gate to pass before paired live cycle orders can be placed.
+- `scripts/coinbase.py` write paths now default to dry-run JSON and require
+  `--live` before placing or cancelling real Coinbase orders.
+- `routines/execute.md` and `.claude/commands/execute.md` now use
+  `scripts/cycle_orders.py open-cycle` for the paired sell-trigger plus
+  re-entry order transaction instead of separate prompt-managed wrapper calls.
 
 ### Fixed
 - `scripts/coinbase.py` — added the missing `limit-buy`, `order`, `fills`, and `product` subcommands needed by the v2 paired-order cycle workflow.

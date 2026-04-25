@@ -10,11 +10,17 @@ Resolve timestamps via:
 DATE=$(date -u +%Y-%m-%d)
 HOUR=$(date -u +%H)
 
-WRAPPER REQUIREMENTS (v2): the paired `LIMIT` buy is placed via
-`python scripts/coinbase.py limit-buy --usd <amt> --price <limit>`.
+ORDER_MODE=--dry-run
+
+WRAPPER REQUIREMENTS (v2): paired cycle order opening is code-owned by
+`python scripts/cycle_orders.py open-cycle $ORDER_MODE ...`, which runs the
+policy gate, plans both orders, and exercises rollback behavior.
 Order lifecycle checks use `python scripts/coinbase.py order <order_id>`
 and `python scripts/coinbase.py fills <order_id>`. If any required wrapper
 call fails, log the failure and exit WITHOUT leaving a half-cycle live.
+Every order-mutating wrapper call must include `$ORDER_MODE`; this local
+command stays dry-run and must not use `--live`. Verify planned order
+payloads only; do not claim orders were placed or update state as live.
 
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
@@ -44,10 +50,12 @@ STEP 4 — Admin rebalance branch (pre-cycle):
     target_usd  = equity × 0.15
     missing_usd = max(0, target_usd - usd_balance)
     rebalance_btc = (missing_usd / btc_price) rounded DOWN to 8 dp
-    python scripts/coinbase.py sell --base <rebalance_btc>
+    python scripts/coinbase.py sell $ORDER_MODE --base <rebalance_btc>
     Append "Admin Rebalance" block to TRADE-LOG. Jump to STEP 9.
-- If < 0.80 AND ACTIVE_CYCLE=false AND no pending re-entry: buy the
-  overage USD at market, log, jump to STEP 9.
+- If < 0.80 AND ACTIVE_CYCLE=false AND no pending re-entry:
+    overage_usd = usd_balance − equity × 0.15
+    python scripts/coinbase.py buy $ORDER_MODE --usd <overage_usd>
+    Log as "Admin Rebalance", jump to STEP 9.
 - Else fall through.
 
 STEP 5 — Cycle gate. ALL must pass (TRADING-STRATEGY §2 + §3):
@@ -79,25 +87,32 @@ STEP 6 — Size the cycle (§2 rule 8):
   btc_if_right    = expected_rebuy − btc_to_sell
 Announce every derived number.
 
-STEP 7 — ATOMIC paired placement (§2 rule 9):
-  # 7a. Sell-trigger
-  stop_limit = sell_trigger_price × 0.995
-  python scripts/coinbase.py stop \
-    --base <btc_to_sell> \
-    --stop-price <sell_trigger_price> \
-    --limit <stop_limit>
-  Capture sell_order_id.
+STEP 7 — CODE-OWNED paired placement (§2 rule 9):
+  The helper below runs the code policy gate internally. Local mode is dry-run.
+  research_fetched_at = data_health.fetched_at if present, else report ts.
+  usd_reserve_pct     = usd_balance / equity × 100.
+  btc_equivalent_stack = btc_balance + (usd_balance / btc_price).
+  cycle_id            = local-execute-$DATE-$HOUR-<short-setup>
+  python scripts/cycle_orders.py open-cycle $ORDER_MODE \
+    --cycle-id <cycle_id> \
+    --product BTC-USD \
+    --playbook-setup <playbook_setup> \
+    --btc-stack <current_btc_stack> \
+    --btc-equivalent-stack <btc_equivalent_stack> \
+    --btc-to-sell <btc_to_sell> \
+    --sell-trigger-price <sell_trigger_price> \
+    --rebuy-limit-price <rebuy_limit_price> \
+    --worst-case-rebuy-price <worst_case_rebuy_price> \
+    --current-price <current spot bid> \
+    --usd-reserve-pct <usd_reserve_pct> \
+    --research-fetched-at <research_fetched_at> \
+    --expected-usd <expected_usd>
 
-  # 7b. Re-entry limit
-  python scripts/coinbase.py limit-buy \
-    --usd <expected_usd> \
-    --price <rebuy_limit_price>
-  Capture rebuy_order_id.
-
-  # 7c. Atomic rollback
-  If 7b fails: cancel sell_order_id, alert, exit without setting
-  ACTIVE_CYCLE=true.
-  If 7a fails: alert, exit without placing 7b.
+  Interpret JSON status:
+    planned      → verify payloads and exit without state writes.
+    rolled_back  → dry-run rollback exercised; do not set ACTIVE_CYCLE=true.
+    blocked      → log policy/order errors and exit.
+    opened       → should not occur locally because ORDER_MODE=--dry-run.
 
 STEP 8 — Persist cycle state:
 - Append full cycle-checklist block (§4) to TRADE-LOG with all fields

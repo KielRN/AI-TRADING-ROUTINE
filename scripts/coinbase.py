@@ -7,6 +7,10 @@ Usage:
 Subcommands:
     account, position, quote, product, orders, order, fills, buy, limit-buy,
     sell, stop, cancel, cancel-all, close
+
+Mutating subcommands default to dry-run. Add --live only after the relevant
+policy or kill-switch gate has passed and the caller is intentionally placing
+or cancelling orders.
 """
 from __future__ import annotations
 
@@ -121,6 +125,33 @@ def _q(n: Decimal, places: int) -> str:
     return str(n.quantize(quant, rounding=ROUND_DOWN))
 
 
+def _is_live(args) -> bool:
+    return bool(getattr(args, "live", False))
+
+
+def _dry_run_payload(action: str, **fields) -> dict:
+    return {
+        "dry_run": True,
+        "live": False,
+        "action": action,
+        **fields,
+    }
+
+
+def _dry_run_order(action: str, order: dict, **fields) -> None:
+    order = {
+        "order_id": None,
+        "status": "DRY_RUN",
+        "success": True,
+        **order,
+    }
+    _dump(_dry_run_payload(action, order=normalize_order(order), **fields))
+
+
+def _dry_run_notice(action: str, **fields) -> None:
+    _dump(_dry_run_payload(action, **fields))
+
+
 def _order_config(order: dict) -> tuple[str | None, dict]:
     cfg = order.get("order_configuration") or order.get("order_config") or {}
     if not isinstance(cfg, dict):
@@ -146,6 +177,10 @@ def normalize_order(order_obj: dict) -> dict:
     if not isinstance(order, dict):
         return {"raw": order}
 
+    error_response = order.get("error_response")
+    if not isinstance(error_response, dict):
+        error_response = {}
+
     # CreateOrderResponse nests the useful fields under success_response.
     if "success_response" in order and isinstance(order["success_response"], dict):
         base = dict(order["success_response"])
@@ -153,6 +188,9 @@ def normalize_order(order_obj: dict) -> dict:
         if order.get("error_response"):
             base["error_response"] = order.get("error_response")
         order = base
+        error_response = order.get("error_response")
+        if not isinstance(error_response, dict):
+            error_response = {}
 
     cfg_name, cfg = _order_config(order)
     order_type = order.get("order_type") or cfg_name
@@ -180,8 +218,12 @@ def normalize_order(order_obj: dict) -> dict:
         "created_time": order.get("created_time"),
         "last_fill_time": order.get("last_fill_time"),
         "success": order.get("success"),
-        "reject_reason": order.get("reject_reason"),
-        "reject_message": order.get("reject_message"),
+        "reject_reason": order.get("reject_reason")
+        or error_response.get("reject_reason")
+        or error_response.get("error"),
+        "reject_message": order.get("reject_message")
+        or error_response.get("message")
+        or error_response.get("error_details"),
     }
 
 
@@ -195,7 +237,9 @@ def normalize_order_response(resp) -> dict:
         }
     if isinstance(data, dict) and isinstance(data.get("order"), dict):
         return {"order": normalize_order(data["order"])}
-    if isinstance(data, dict) and "success_response" in data:
+    if isinstance(data, dict) and (
+        "success_response" in data or "error_response" in data
+    ):
         return {"order": normalize_order(data)}
     return data
 
@@ -309,10 +353,22 @@ def cmd_product(args) -> None:
 
 
 def cmd_buy(args) -> None:
-    client = _client()
     coid = str(uuid.uuid4())
     if args.usd:
         usd = Decimal(args.usd).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        if not _is_live(args):
+            _dry_run_order(
+                "market_order_buy",
+                {
+                    "client_order_id": coid,
+                    "product_id": PRODUCT,
+                    "side": "BUY",
+                    "order_type": "market_market_ioc",
+                    "quote_size": str(usd),
+                },
+            )
+            return
+        client = _client()
         resp = client.market_order_buy(
             client_order_id=coid,
             product_id=PRODUCT,
@@ -320,6 +376,19 @@ def cmd_buy(args) -> None:
         )
     elif args.base:
         btc = Decimal(args.base)
+        if not _is_live(args):
+            _dry_run_order(
+                "market_order_buy",
+                {
+                    "client_order_id": coid,
+                    "product_id": PRODUCT,
+                    "side": "BUY",
+                    "order_type": "market_market_ioc",
+                    "base_size": _q(btc, 8),
+                },
+            )
+            return
+        client = _client()
         resp = client.market_order_buy(
             client_order_id=coid,
             product_id=PRODUCT,
@@ -328,11 +397,10 @@ def cmd_buy(args) -> None:
     else:
         print("usage: buy --usd <amt> OR --base <btc>", file=sys.stderr)
         sys.exit(1)
-    _dump(resp)
+    _dump(normalize_order_response(resp))
 
 
 def cmd_limit_buy(args) -> None:
-    client = _client()
     coid = str(uuid.uuid4())
     limit_price = Decimal(args.price)
     if args.usd:
@@ -344,6 +412,23 @@ def cmd_limit_buy(args) -> None:
         print("usage: limit-buy --usd <amt> OR --base <btc>", file=sys.stderr)
         sys.exit(1)
 
+    if not _is_live(args):
+        _dry_run_order(
+            "limit_order_gtc_buy",
+            {
+                "client_order_id": coid,
+                "product_id": PRODUCT,
+                "side": "BUY",
+                "order_type": "limit_limit_gtc",
+                "base_size": _q(btc, 8),
+                "quote_size": str(usd) if args.usd else None,
+                "limit_price": str(limit_price),
+                "post_only": args.post_only,
+            },
+        )
+        return
+
+    client = _client()
     resp = client.limit_order_gtc_buy(
         client_order_id=coid,
         product_id=PRODUCT,
@@ -355,9 +440,22 @@ def cmd_limit_buy(args) -> None:
 
 
 def cmd_sell(args) -> None:
-    client = _client()
     coid = str(uuid.uuid4())
     if args.pct is not None:
+        if not _is_live(args):
+            _dry_run_order(
+                "market_order_sell",
+                {
+                    "client_order_id": coid,
+                    "product_id": PRODUCT,
+                    "side": "SELL",
+                    "order_type": "market_market_ioc",
+                },
+                percent=str(args.pct),
+                requires_live_balance_lookup=True,
+            )
+            return
+        client = _client()
         accounts = client.get_accounts()
         btc_bal = Decimal("0")
         for a in accounts["accounts"]:
@@ -374,6 +472,19 @@ def cmd_sell(args) -> None:
             base_size=_q(size, 8),
         )
     elif args.base:
+        if not _is_live(args):
+            _dry_run_order(
+                "market_order_sell",
+                {
+                    "client_order_id": coid,
+                    "product_id": PRODUCT,
+                    "side": "SELL",
+                    "order_type": "market_market_ioc",
+                    "base_size": _q(Decimal(args.base), 8),
+                },
+            )
+            return
+        client = _client()
         resp = client.market_order_sell(
             client_order_id=coid,
             product_id=PRODUCT,
@@ -382,12 +493,27 @@ def cmd_sell(args) -> None:
     else:
         print("usage: sell --pct <n> OR --base <btc>", file=sys.stderr)
         sys.exit(1)
-    _dump(resp)
+    _dump(normalize_order_response(resp))
 
 
 def cmd_stop(args) -> None:
-    client = _client()
     coid = str(uuid.uuid4())
+    if not _is_live(args):
+        _dry_run_order(
+            "stop_limit_order_gtc_sell",
+            {
+                "client_order_id": coid,
+                "product_id": PRODUCT,
+                "side": "SELL",
+                "order_type": "stop_limit_stop_limit_gtc",
+                "base_size": _q(Decimal(args.base), 8),
+                "limit_price": str(Decimal(args.limit)),
+                "stop_price": str(Decimal(args.stop_price)),
+                "stop_direction": "STOP_DIRECTION_STOP_DOWN",
+            },
+        )
+        return
+    client = _client()
     resp = client.stop_limit_order_gtc_sell(
         client_order_id=coid,
         product_id=PRODUCT,
@@ -396,15 +522,25 @@ def cmd_stop(args) -> None:
         stop_price=str(Decimal(args.stop_price)),
         stop_direction="STOP_DIRECTION_STOP_DOWN",
     )
-    _dump(resp)
+    _dump(normalize_order_response(resp))
 
 
 def cmd_cancel(args) -> None:
+    if not _is_live(args):
+        _dry_run_notice("cancel_orders", order_ids=[args.order_id])
+        return
     resp = _client().cancel_orders(order_ids=[args.order_id])
-    _dump(resp)
+    _dump(normalize_order_response(resp))
 
 
 def cmd_cancel_all(args) -> None:
+    if not _is_live(args):
+        _dry_run_notice(
+            "cancel_all_open_orders",
+            product_id=PRODUCT,
+            order_status=["OPEN"],
+        )
+        return
     client = _client()
     open_orders = _as_dict(client.list_orders(order_status=["OPEN"], product_ids=[PRODUCT]))
     ids = [o["order_id"] for o in open_orders.get("orders", [])]
@@ -412,7 +548,7 @@ def cmd_cancel_all(args) -> None:
         _dump({"cancelled": 0, "order_ids": []})
         return
     resp = client.cancel_orders(order_ids=ids)
-    _dump(resp)
+    _dump(normalize_order_response(resp))
 
 
 def cmd_close(args) -> None:
@@ -423,6 +559,14 @@ def cmd_close(args) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+    if not _is_live(args):
+        _dry_run_notice(
+            "close_all_btc",
+            product_id=PRODUCT,
+            side="SELL",
+            requires_live_balance_lookup=True,
+        )
+        return
     client = _client()
     accounts = client.get_accounts()
     btc_bal = Decimal("0")
@@ -438,7 +582,21 @@ def cmd_close(args) -> None:
         product_id=PRODUCT,
         base_size=_q(btc_bal, 8),
     )
-    _dump(resp)
+    _dump(normalize_order_response(resp))
+
+
+def add_execution_flags(parser: argparse.ArgumentParser) -> None:
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate and print the intended write without placing/cancelling orders (default)",
+    )
+    mode.add_argument(
+        "--live",
+        action="store_true",
+        help="place or cancel real Coinbase orders; use only after relevant gates pass",
+    )
 
 
 def main() -> None:
@@ -466,6 +624,7 @@ def main() -> None:
     sp = sub.add_parser("buy")
     sp.add_argument("--usd")
     sp.add_argument("--base")
+    add_execution_flags(sp)
 
     sp = sub.add_parser("limit-buy")
     g = sp.add_mutually_exclusive_group(required=True)
@@ -473,22 +632,28 @@ def main() -> None:
     g.add_argument("--base")
     sp.add_argument("--price", required=True)
     sp.add_argument("--post-only", action="store_true")
+    add_execution_flags(sp)
 
     sp = sub.add_parser("sell")
     sp.add_argument("--pct", type=Decimal)
     sp.add_argument("--base")
+    add_execution_flags(sp)
 
     sp = sub.add_parser("stop")
     sp.add_argument("--base", required=True)
     sp.add_argument("--stop-price", required=True)
     sp.add_argument("--limit", required=True)
+    add_execution_flags(sp)
 
     sp = sub.add_parser("cancel")
     sp.add_argument("order_id")
+    add_execution_flags(sp)
 
-    sub.add_parser("cancel-all")
+    sp = sub.add_parser("cancel-all")
+    add_execution_flags(sp)
     sp = sub.add_parser("close")
     sp.add_argument("--confirm-sell-all", action="store_true")
+    add_execution_flags(sp)
 
     args = p.parse_args()
 

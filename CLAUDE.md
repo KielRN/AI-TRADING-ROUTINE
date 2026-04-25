@@ -48,7 +48,16 @@ workflow.
 ## API Wrappers
 
 - `python scripts/coinbase.py ...` — trading
+  - Read-only subcommands run normally.
+  - Order-mutating subcommands default to `--dry-run`; use `--live` only when
+    the relevant policy/kill-switch gate says a real Coinbase write is
+    required.
+- `python scripts/cycle_orders.py open-cycle ...` — code-owned cycle order
+  transaction; runs policy, dry-run planning, live paired placement, and
+  rollback if the re-entry order fails.
 - `python scripts/state.py` — validate machine-readable state
+- `python scripts/policy.py validate-cycle ...` — executable pre-order cycle
+  policy gate
 - `python scripts/paper_trade.py ...` — two-week paper trading harness; never
   places live Coinbase orders
 - `bash scripts/research.sh "<q>"` — temporary research stub; use
