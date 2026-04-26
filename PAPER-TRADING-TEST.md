@@ -24,6 +24,21 @@ If started on 2026-04-25, the planned end is 2026-05-09.
 - The paper harness is `python scripts/paper_trade.py`.
 - The live bot state at `memory/state.json` must not be modified by paper
   cycles.
+- Paper trading is downstream of AI research. It may advance lifecycle from a
+  quote, but it must not open a new paper cycle without a fresh
+  `memory/research-reports/*.json` produced by `research-and-plan`.
+
+## Agent-First Sequence
+
+The paper campaign validates the full workflow, not just the simulator:
+
+```text
+research-and-plan agent -> research report -> paper-trading routine -> paper state
+```
+
+The agent owns market interpretation: catalysts, sentiment, macro, structure,
+technical levels, and thesis. The code owns safety gates and paper fill
+mechanics.
 
 ## Start The Campaign
 
@@ -54,8 +69,19 @@ python scripts/paper_trade.py summary
 
 ## Twice-Daily Paper Execute
 
-Run this at the same cadence as the live execute window, after the research
-routine produces or refreshes a v2 report.
+Run this at the same cadence as the live execute window, after the
+research-and-plan agent produces or refreshes a v2 report.
+
+For local automation, prefer the single auditable runner:
+
+```bash
+python scripts/paper_shadow.py \
+  --research-report memory/research-reports/YYYY-MM-DD-HH.json
+```
+
+If opening a paper cycle is justified by the agent report, pass the same
+cycle arguments shown below to `paper_shadow.py`. It will tick from the quote,
+validate the research report, and open only if the report gate passes.
 
 1. Validate state:
 
@@ -63,23 +89,39 @@ routine produces or refreshes a v2 report.
 python scripts/paper_trade.py validate
 ```
 
-2. Pull read-only quote:
+2. Validate the latest research artifact:
+
+```bash
+python scripts/research_gate.py latest --max-age-minutes 45
+```
+
+If this fails, still tick the paper lifecycle from price, but do not open a
+new paper cycle.
+
+3. Pull read-only quote:
 
 ```bash
 python scripts/coinbase.py quote BTC-USD
 ```
 
-3. Advance the paper broker with current bid/ask:
+4. Advance the paper broker with current bid/ask:
 
 ```bash
 python scripts/paper_trade.py tick --bid <bid> --ask <ask>
 ```
 
-4. If the latest v2 research report has an A/B cycle idea that passes the
-   checklist, open the cycle in paper:
+5. If the latest v2 research report has an A/B cycle idea that passes the
+   checklist, first confirm it is actionable:
+
+```bash
+python scripts/research_gate.py latest --max-age-minutes 45 --require-trade-idea
+```
+
+Then open the cycle in paper:
 
 ```bash
 python scripts/paper_trade.py open-cycle \
+  --research-report memory/research-reports/YYYY-MM-DD-HH.json \
   --cycle-id paper-YYYYMMDD-HHMM \
   --playbook-setup <setup> \
   --grade <A|B> \
@@ -143,6 +185,6 @@ The paper test is complete only when all are true:
 - A final weekly review records paper BTC delta, win/loss/flat count, blocked
   executions, and recommended policy changes before live automation.
 
-Passing this test does not by itself authorize live trading. The policy layer,
-dry-run default, idempotency, locks, held-balance handling, and CI gates in
-`REMAINING-WORK.md` still need to be complete.
+Passing this test does not by itself authorize live trading. The remaining
+held-balance/product metadata handling, CI gates, and final live-readiness
+review in `REMAINING-WORK.md` still need to be complete.

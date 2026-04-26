@@ -12,6 +12,11 @@ DATE=$(date -u +%Y-%m-%d)
 HOUR=$(date -u +%H)
 NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DOW=$(date -u +%u)   # 1=Mon ... 7=Sun. Saturday=6.
+ORDER_MODE=--dry-run
+
+Every order-mutating Coinbase wrapper call in this local command must include
+`$ORDER_MODE`; do not use `--live`. Verify planned actions only; do not update
+state or TRADE-LOG as if live orders changed.
 
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
@@ -53,7 +58,7 @@ STEP 5 — Phase-specific actions:
     - If hours_since_sell ≥ 72 AND rebuy OPEN (§2 rule 15):
         cancel rebuy_order_id
         usd_from_sell = btc_to_sell × sell_fill_price
-        python scripts/coinbase.py buy --usd <usd_from_sell>
+        python scripts/coinbase.py buy $ORDER_MODE --usd <usd_from_sell>
         → STEP 6 (cycle close, time-cap).
     - Weekend defense (§2 rule 19): if DOW==6 AND ≤4h to Saturday 00:00 UTC
       AND (research deteriorating OR price > sell_fill_price): cancel rebuy,

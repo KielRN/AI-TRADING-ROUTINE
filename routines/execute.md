@@ -18,14 +18,24 @@ IMPORTANT — ENVIRONMENT VARIABLES:
     done
 
 IMPORTANT — PERSISTENCE:
-- Fresh clone. File changes VANISH unless committed and pushed. MUST commit
-  and push at STEP 10.
+- Fresh clone. File changes VANISH unless committed and pushed. For live order
+  changes only, MUST commit and push at STEP 10.
 
 IMPORTANT — WRAPPER REQUIREMENTS (v2):
-- The paired `LIMIT` buy GTC required by TRADING-STRATEGY §2 rule 9b is
-  placed via `python scripts/coinbase.py limit-buy --usd <amt> --price <limit>`.
+- Paired cycle order opening is code-owned by
+  `python scripts/cycle_orders.py open-cycle $ORDER_MODE ...`.
+- That helper validates the research report artifact, runs the policy gate,
+  plans the sell-trigger plus re-entry, places both orders in live mode, and
+  rolls back the sell-trigger if the re-entry order fails.
 - Order lifecycle checks use `python scripts/coinbase.py order <order_id>`
   and `python scripts/coinbase.py fills <order_id>`.
+- Set `ORDER_MODE=--dry-run` by default. Use `ORDER_MODE=--live` only when
+  this run is explicitly authorized to place real orders.
+- Every order-mutating wrapper call must include `$ORDER_MODE`; never rely on
+  implicit wrapper defaults.
+- If `ORDER_MODE=--dry-run`, verify the planned order payloads, then stop
+  without claiming orders were placed, mutating state, notifying, committing,
+  or pushing.
 - If any required wrapper call fails, log the failure, send one Telegram
   `[BLOCKED]` alert, and exit WITHOUT leaving a half-cycle live. A lone
   sell-trigger is forbidden (§2 rule 9 — atomic pair).
@@ -34,6 +44,7 @@ STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
 - memory/state.json (validate first: `python scripts/state.py`)
 - Latest memory/research-reports/*.json (must be dated within last 45 min).
+  Validate with `python scripts/research_gate.py latest --max-age-minutes 45`.
   If stale, log "research stale, skipping" and exit without commit.
 - tail of memory/TRADE-LOG.md (cross-check cycle history / weekly count)
 - memory/PROJECT-CONTEXT.md (legacy mirror of DRAWDOWN_HALT, ACTIVE_CYCLE,
@@ -60,18 +71,21 @@ STEP 4 — Admin rebalance branch (pre-cycle):
     target_usd  = equity × 0.15         # midpoint of 10–20% reserve band
     missing_usd = max(0, target_usd - usd_balance)
     rebalance_btc = (missing_usd / btc_price) rounded DOWN to 8 dp
-    python scripts/coinbase.py sell --base <rebalance_btc>
+    python scripts/coinbase.py sell $ORDER_MODE --base <rebalance_btc>
     Append to TRADE-LOG.md an "Admin Rebalance" entry (not a cycle, no
     rubric grade, no paired order). Fields: date, btc_sold, fill_price,
     usd_received, new btc_by_value_pct. Jump to STEP 9 (notify + commit).
     A rebalance and a cycle never fire in the same run.
 - If btc_by_value_pct < 0.80 (too light) AND ACTIVE_CYCLE=false AND no
-  pending re-entry limit from a prior cycle: buy a slice at market with
-  the overage USD (usd_balance − equity × 0.15), log as "Admin Rebalance",
-  jump to STEP 9.
+  pending re-entry limit from a prior cycle:
+    overage_usd = usd_balance − equity × 0.15
+    python scripts/coinbase.py buy $ORDER_MODE --usd <overage_usd>
+    Log as "Admin Rebalance", jump to STEP 9.
 - Else fall through to STEP 5.
 
 STEP 5 — Cycle gate. ALL must pass (TRADING-STRATEGY §2 + §3):
+□ Latest research report passes:
+    python scripts/research_gate.py latest --max-age-minutes 45 --require-trade-idea
 □ Research report has a trade_idea with grade A or B
 □ trade_idea.playbook_setup ∈ {catalyst_driven_breakdown,
     sentiment_extreme_greed_fade, funding_flip_divergence,
@@ -105,30 +119,35 @@ STEP 6 — Size the cycle (TRADING-STRATEGY §2 rule 8):
   btc_if_right    = expected_rebuy − btc_to_sell       # expected BTC gain
 Announce every derived number before placing orders.
 
-STEP 7 — ATOMIC paired placement (§2 rule 9):
-  # 7a. Sell-trigger (STOP_LIMIT sell, GTC)
-  stop_limit = sell_trigger_price × 0.995   # 50 bps slippage buffer below trigger
-  python scripts/coinbase.py stop \
-    --base <btc_to_sell> \
-    --stop-price <sell_trigger_price> \
-    --limit <stop_limit>
-  Verify accepted. Capture sell_order_id.
+STEP 7 — CODE-OWNED paired placement (§2 rule 9):
+  The helper below runs the code policy gate internally before any live order.
+  research_report     = latest memory/research-reports/$DATE-$HOUR.json.
+  research_fetched_at = data_health.fetched_at if present, else report ts.
+  usd_reserve_pct     = usd_balance / equity × 100.
+  btc_equivalent_stack = btc_balance + (usd_balance / btc_price).
+  cycle_id            = execute-$DATE-$HOUR-<short-setup>
+  python scripts/cycle_orders.py open-cycle $ORDER_MODE \
+    --cycle-id <cycle_id> \
+    --product BTC-USD \
+    --playbook-setup <playbook_setup> \
+    --btc-stack <current_btc_stack> \
+    --btc-equivalent-stack <btc_equivalent_stack> \
+    --btc-to-sell <btc_to_sell> \
+    --sell-trigger-price <sell_trigger_price> \
+    --rebuy-limit-price <rebuy_limit_price> \
+    --worst-case-rebuy-price <worst_case_rebuy_price> \
+    --current-price <current spot bid> \
+    --usd-reserve-pct <usd_reserve_pct> \
+    --research-report memory/research-reports/$DATE-$HOUR.json \
+    --research-fetched-at <research_fetched_at> \
+    --expected-usd <expected_usd>
 
-  # 7b. Re-entry limit (LIMIT buy, GTC)
-  python scripts/coinbase.py limit-buy \
-    --usd <expected_usd> \
-    --price <rebuy_limit_price>
-  Verify accepted. Capture rebuy_order_id.
-
-  # 7c. Atomic rollback on half-placement
-  If 7b FAILS to place:
-    python scripts/coinbase.py cancel <sell_order_id>
-    bash scripts/telegram.sh "[CRITICAL] Re-entry limit rejected; sell-trigger cancelled. No half-cycle."
-    Log the failure in TRADE-LOG as "cycle aborted — re-entry rejected".
-    Exit WITHOUT setting ACTIVE_CYCLE=true.
-  If 7a FAILS first:
-    bash scripts/telegram.sh "[CRITICAL] Sell-trigger rejected; no cycle opened."
-    Exit WITHOUT placing re-entry.
+  Interpret JSON status:
+    planned      → dry-run only; verify payloads and exit without state writes.
+    opened       → capture sell_order_id and rebuy_order_id; continue to STEP 8.
+    rolled_back  → send `[CRITICAL] Re-entry rejected; sell-trigger cancelled. No half-cycle.`
+                   Log "cycle aborted — re-entry rejected" and exit WITHOUT ACTIVE_CYCLE=true.
+    blocked      → log policy/order errors, send one `[BLOCKED]` alert, and exit without commit.
 
 STEP 8 — Persist cycle state:
 - Append the full cycle-checklist block from TRADING-STRATEGY §4 to
@@ -157,7 +176,7 @@ STEP 9 — Notification:
     bash scripts/telegram.sh "[CYCLE] Open: sell-trigger \$X (N.NNNN BTC), re-entry \$Y. Setup: <playbook>. Grade: X. BTC R:R: N.N. 72h cap: <UTC>."
 - Otherwise: silent.
 
-STEP 10 — COMMIT AND PUSH (only if rebalance OR cycle fired):
+STEP 10 — COMMIT AND PUSH (only if ORDER_MODE=--live and rebalance OR cycle fired):
     git add memory/TRADE-LOG.md memory/PROJECT-CONTEXT.md memory/state.json
     git commit -m "execute $DATE $HOUR:30"
     git push origin main

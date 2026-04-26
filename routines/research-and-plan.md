@@ -8,6 +8,15 @@ DATE=$(date -u +%Y-%m-%d)
 HOUR=$(date -u +%H)
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+IMPORTANT - AGENT ANALYSIS BOUNDARY:
+- This workflow does the market interpretation before any paper or live cycle
+  can open.
+- Code gates enforce safety later, but they do not replace the research
+  agent's judgment on catalyst, sentiment, macro, structure, technical levels,
+  and thesis quality.
+- If research cannot be completed, write/emit HOLD. Do not let execute or
+  paper-trading invent a trade idea downstream.
+
 IMPORTANT — ENVIRONMENT VARIABLES:
 - Every API key is ALREADY exported: COINBASE_API_KEY, COINBASE_API_SECRET,
   TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_IDS.
@@ -38,11 +47,17 @@ python scripts/coinbase.py position
 python scripts/coinbase.py orders
 python scripts/coinbase.py quote BTC-USD
 
-STEP 3 — Research via WebSearch. For each query below, run:
-    bash scripts/research.sh "<query>"
-  If exit code is 3 (expected in v1 — collector composer not yet built
-  per research/RESEARCH-AGENT-DESIGN-V2.md §9 Phase 2), use your native
-  WebSearch tool for the same query and cite the sources. Queries:
+STEP 3 — Collect validated data, then research gaps via WebSearch:
+Run:
+    bash scripts/research.sh collect
+
+This gathers only currently validated/already-paid sources:
+- ChartInspect Pro: funding-rates, open-interest, whale-flows
+- YouTube: titles, velocity
+- Coinbase: BTC-USD quote
+
+Do not add new paid API sources. For every missing/unvalidated rubric slot,
+use native WebSearch and cite sources. Required WebSearch queries:
 - "BTC price 24h volume funding rate open interest latest"
 - "Spot BTC ETF aggregate net flow last 24 hours USD"
 - "US economic calendar next 5 days FOMC CPI NFP"
@@ -84,6 +99,8 @@ trade ideas. Each trade_idea MUST include:
 Also populate data_health (missing_slots, websearch_gaps, stale_warnings).
 If ACTIVE_CYCLE=true OR any cooldown blocks a new cycle, still write the
 report but set trade_ideas=[] and bias='HOLD' with a one-line reason.
+Validate the artifact before continuing:
+    python scripts/research_gate.py schema memory/research-reports/$DATE-$HOUR.json
 
 STEP 6 — Append human-readable summary to memory/RESEARCH-LOG.md:
 ### $DATE $HOUR:00 UTC — Research

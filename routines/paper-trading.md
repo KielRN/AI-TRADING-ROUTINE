@@ -3,6 +3,7 @@ Ultra-concise. This routine simulates v2 cycles and MUST NOT place live orders.
 
 Resolve timestamps via:
 DATE=$(date -u +%Y-%m-%d)
+HOUR=$(date -u +%H)
 NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 IMPORTANT - PAPER MODE ONLY:
@@ -13,6 +14,9 @@ IMPORTANT - PAPER MODE ONLY:
 - Paper state is `memory/paper-trading/state.json`.
 - Paper wrapper is `python scripts/paper_trade.py`.
 - Live state `memory/state.json` must not be modified by this workflow.
+- Research remains upstream. This workflow may simulate a cycle only from a
+  fresh `research-and-plan` report; do not invent trade ideas inside the paper
+  routine.
 
 STEP 1 - Read docs and state:
 - `PAPER-TRADING-TEST.md`
@@ -29,7 +33,15 @@ If validation fails:
 - Do not touch live state.
 - Exit after committing only a paper-state repair if one was made.
 
-STEP 3 - Initialize if not started:
+STEP 3 - Validate latest research report:
+python scripts/research_gate.py latest --max-age-minutes 45
+
+If this fails:
+- Continue only with quote + paper lifecycle tick + summary.
+- Do not open a new paper cycle.
+- Report "research stale/missing, paper open blocked".
+
+STEP 4 - Initialize if not started:
 - If `status=not_started`, pull read-only account and quote:
     python scripts/coinbase.py account
     python scripts/coinbase.py quote BTC-USD
@@ -40,20 +52,25 @@ STEP 3 - Initialize if not started:
       --btc-price <spot_price>
 - The campaign runs exactly 14 days from initialization.
 
-STEP 4 - Pull current quote:
+STEP 5 - Pull current quote:
 python scripts/coinbase.py quote BTC-USD
 
-STEP 5 - Advance paper lifecycle:
+STEP 6 - Advance paper lifecycle:
 python scripts/paper_trade.py tick --bid <bid> --ask <ask>
+
+Local automation may combine STEP 3, STEP 5, and STEP 6 with:
+python scripts/paper_shadow.py \
+  --research-report memory/research-reports/$DATE-$HOUR.json
 
 This may fill a paper sell-trigger, fill a paper re-entry, force a 72h
 time-cap paper market-buy, close any remaining paper exposure at the 14-day
 boundary, or mark the campaign complete.
 
-STEP 6 - Consider a new paper cycle only if:
+STEP 7 - Consider a new paper cycle only if:
 - Campaign status is active.
 - No active paper cycle exists.
-- Latest v2 research report is fresh enough for execute.
+- Latest v2 research report passes:
+  python scripts/research_gate.py latest --max-age-minutes 45 --require-trade-idea
 - Trade idea is grade A or B.
 - Trade idea uses a v2 setup:
   catalyst_driven_breakdown, sentiment_extreme_greed_fade,
@@ -63,6 +80,7 @@ STEP 6 - Consider a new paper cycle only if:
 
 If all pass, open paper cycle only:
 python scripts/paper_trade.py open-cycle \
+  --research-report memory/research-reports/$DATE-$HOUR.json \
   --cycle-id paper-$DATE-<HHMM> \
   --playbook-setup <setup> \
   --grade <A|B> \
@@ -75,7 +93,7 @@ python scripts/paper_trade.py open-cycle \
 If any check fails, do not open a paper cycle. Record the blocked reason in
 the routine output or research log if useful.
 
-STEP 7 - Summarize:
+STEP 8 - Summarize:
 python scripts/paper_trade.py summary
 
 Report:
@@ -86,7 +104,7 @@ Report:
 - BTC-equivalent delta versus start
 - any blocked trade idea reason
 
-STEP 8 - Persist:
+STEP 9 - Persist:
 If `memory/paper-trading/state.json` changed:
   git add memory/paper-trading/state.json
   git commit -m "paper trading $DATE"

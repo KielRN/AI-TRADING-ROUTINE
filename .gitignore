@@ -8,3 +8,4 @@ dist/
 build/
 *cdp_api_key.json
 /Google Vertex Keys
+/memory/.locks/

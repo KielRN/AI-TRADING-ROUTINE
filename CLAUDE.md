@@ -48,9 +48,27 @@ workflow.
 ## API Wrappers
 
 - `python scripts/coinbase.py ...` — trading
+  - Read-only subcommands run normally.
+  - Order-mutating subcommands default to `--dry-run`; use `--live` only when
+    the relevant policy/kill-switch gate says a real Coinbase write is
+    required.
+- `python scripts/cycle_orders.py open-cycle ...` — code-owned cycle order
+  transaction; runs policy, dry-run planning, live paired placement, and
+  rollback if the re-entry order fails.
 - `python scripts/state.py` — validate machine-readable state
+- `python scripts/policy.py validate-cycle ...` — executable pre-order cycle
+  policy gate
+- `python scripts/research_gate.py ...` — validates fresh agent research
+  reports and v2 schema before paper/live downstream routines act on trade
+  ideas
+- `bash scripts/research.sh collect` — bounded research collector for
+  validated/already-paid sources only: ChartInspect Pro, YouTube, and Coinbase
+  quote. The agent uses WebSearch for missing/unvalidated slots.
 - `python scripts/paper_trade.py ...` — two-week paper trading harness; never
-  places live Coinbase orders
+  places live Coinbase orders; CLI `open-cycle` requires a fresh research
+  report
+- `python scripts/paper_shadow.py ...` — local paper shadow runner for quote
+  tick + research gate + optional paper open in one JSON audit record
 - `bash scripts/research.sh "<q>"` — temporary research stub; use
   `research/RESEARCH-AGENT-DESIGN-V2.md` as the actionable research design.
   `research/RESEARCH-AGENT-DESIGN.md` is stale v1 history only.
