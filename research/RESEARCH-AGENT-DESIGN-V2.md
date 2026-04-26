@@ -4,6 +4,12 @@
 **Status:** Actionable design. Supersedes stale v1
 [RESEARCH-AGENT-DESIGN.md](RESEARCH-AGENT-DESIGN.md); build new research
 work from this file only.
+
+**2026-04-25 scope correction:** ChartInspect Pro is already a paid monthly
+source, and `RESEARCH-DATA-STATUS.md` is the authority on which endpoints were
+validated. For now, the production research path uses only validated/already
+paid sources plus AI WebSearch for missing slots. Do not expand into new paid
+API dependencies unless explicitly approved.
 **Companion docs:**
 - [TRADING-STRATEGY.md](../memory/TRADING-STRATEGY.md) — the rulebook and 4 step-out setup types this pipeline must serve
 - [RESEARCH-DATA-STATUS.md](RESEARCH-DATA-STATUS.md) — per-datapoint live/stale/missing status (drives §3)
@@ -321,8 +327,11 @@ The schema otherwise remains the v1 §8.1 shape.
 
 ## 9. Order of work
 
-**Phase 1 — finish the collector set (~1–2 weeks).** Build wrappers
-easiest-first so the composer sees partial functionality early.
+**Phase 1 — bounded collector.** Build only around currently
+validated/already-paid sources and leave the remaining slots to WebSearch:
+ChartInspect Pro funding/OI/whale flows, YouTube titles/velocity, and Coinbase
+quote. The old wrapper expansion list below is optional future no-new-cost
+work, not a blocker for paper forward-testing.
 
 1. `scripts/fng.py` — one GET, no key. Half a day.
 2. `scripts/coingecko.py` — one GET to `/global`. Half a day.

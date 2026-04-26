@@ -31,6 +31,7 @@ try:
         utc_now,
         validate_cycle_open,
     )
+    from scripts.research_gate import validate_research_report
     from scripts.state import DEFAULT_STATE, load_state
     from scripts.state import open_cycle as state_open_cycle
     from scripts.state import write_state_atomic
@@ -44,6 +45,7 @@ except ImportError:  # pragma: no cover - direct script execution from scripts/
         utc_now,
         validate_cycle_open,
     )
+    from research_gate import validate_research_report
     from state import DEFAULT_STATE, load_state
     from state import open_cycle as state_open_cycle
     from state import write_state_atomic
@@ -446,6 +448,55 @@ def _decimal_arg(value: str, field: str) -> Decimal:
 def _cmd_open_cycle_unlocked(args, *, now, run_id: str) -> int:
     btc_stack = _decimal_arg(args.btc_stack, "btc_stack")
     state_doc = load_state(args.state)
+    research_gate = None
+    research_report = getattr(args, "research_report", None)
+    if research_report:
+        research_gate = validate_research_report(
+            research_report,
+            now=now,
+            max_age_minutes=_decimal_arg(
+                getattr(args, "max_research_age_minutes", "45"),
+                "max_research_age_minutes",
+            ),
+            require_trade_idea=True,
+        )
+        if not research_gate["ok"]:
+            print_json(
+                {
+                    "ok": False,
+                    "status": "blocked",
+                    "reason": "research_gate",
+                    "research": research_gate,
+                    "idempotency_key": run_id,
+                }
+            )
+            return 1
+        research_fetched_at = parse_utc(research_gate["fetched_at_utc"])
+    elif args.live:
+        print_json(
+            {
+                "ok": False,
+                "status": "blocked",
+                "reason": "research_report_required",
+                "error": "--research-report is required for live cycle opening",
+                "idempotency_key": run_id,
+            }
+        )
+        return 1
+    else:
+        if not args.research_fetched_at:
+            print_json(
+                {
+                    "ok": False,
+                    "status": "blocked",
+                    "reason": "research_timestamp_required",
+                    "error": "--research-fetched-at or --research-report is required",
+                    "idempotency_key": run_id,
+                }
+            )
+            return 1
+        research_fetched_at = parse_utc(args.research_fetched_at)
+
     result = open_cycle_orders(
         state=state_doc,
         cycle_id=args.cycle_id,
@@ -465,7 +516,7 @@ def _cmd_open_cycle_unlocked(args, *, now, run_id: str) -> int:
         if args.current_price
         else None,
         usd_reserve_pct=_decimal_arg(args.usd_reserve_pct, "usd_reserve_pct"),
-        research_fetched_at=parse_utc(args.research_fetched_at),
+        research_fetched_at=research_fetched_at,
         now=now,
         max_research_age_hours=_decimal_arg(
             args.max_research_age_hours, "max_research_age_hours"
@@ -481,6 +532,8 @@ def _cmd_open_cycle_unlocked(args, *, now, run_id: str) -> int:
         simulate_rebuy_failure=args.simulate_rebuy_failure,
         idempotency_key=run_id,
     )
+    if research_gate:
+        result["research"] = research_gate
     if args.live and result["status"] == "opened":
         try:
             _persist_opened_state(state_doc, args, result)
@@ -546,8 +599,10 @@ def main() -> None:
     p.add_argument("--worst-case-rebuy-price", required=True)
     p.add_argument("--current-price")
     p.add_argument("--usd-reserve-pct", required=True)
-    p.add_argument("--research-fetched-at", required=True)
+    p.add_argument("--research-fetched-at")
+    p.add_argument("--research-report", type=Path)
     p.add_argument("--max-research-age-hours", default=str(DEFAULT_MAX_RESEARCH_AGE_HOURS))
+    p.add_argument("--max-research-age-minutes", default="45")
     p.add_argument("--expected-usd")
     p.add_argument("--stop-limit-price")
     p.add_argument("--post-only", action="store_true")

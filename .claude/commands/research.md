@@ -10,6 +10,14 @@ DATE=$(date -u +%Y-%m-%d)
 HOUR=$(date -u +%H)
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+IMPORTANT - AGENT ANALYSIS BOUNDARY:
+- This command does market interpretation before paper or live execution can
+  act.
+- Code gates enforce safety later; they do not replace judgment on catalyst,
+  sentiment, macro, structure, technical levels, or thesis quality.
+- If research cannot be completed, write/emit HOLD. Do not leave downstream
+  routines to invent a trade idea.
+
 STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md (four step-out setups, §3)
 - memory/state.json (validate first: `python scripts/state.py`)
@@ -24,9 +32,17 @@ python scripts/coinbase.py position
 python scripts/coinbase.py orders
 python scripts/coinbase.py quote BTC-USD
 
-STEP 3 — Research via WebSearch. For each query, run:
-    bash scripts/research.sh "<query>"
-  If exit code is 3 (v1 stub), use native WebSearch and cite sources.
+STEP 3 — Collect validated data, then research gaps via WebSearch:
+Run:
+    bash scripts/research.sh collect
+
+This gathers only currently validated/already-paid sources:
+- ChartInspect Pro: funding-rates, open-interest, whale-flows
+- YouTube: titles, velocity
+- Coinbase: BTC-USD quote
+
+Do not add new paid API sources. For every missing/unvalidated rubric slot,
+use native WebSearch and cite sources. Required WebSearch queries:
 - "BTC price 24h volume funding rate open interest latest"
 - "Spot BTC ETF aggregate net flow last 24 hours USD"
 - "US economic calendar next 5 days FOMC CPI NFP"
@@ -59,6 +75,8 @@ per research/RESEARCH-AGENT-DESIGN-V2.md §8. Each trade_idea MUST include:
 - thesis
 Populate data_health. If ACTIVE_CYCLE=true OR cooldown blocks a cycle,
 set trade_ideas=[] with bias='HOLD'.
+Validate the artifact before continuing:
+`python scripts/research_gate.py schema memory/research-reports/$DATE-$HOUR.json`
 
 STEP 6 — Append to memory/RESEARCH-LOG.md:
 ### $DATE $HOUR:00 UTC — Research

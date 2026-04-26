@@ -4,8 +4,42 @@ This is the execution checklist distilled from `RECOMMENDATIONS.md` after the
 2026-04-25 safety pass.
 
 Do not enable automated live cycle opening until the live-blocking section,
-held-balance/product metadata checks, CI gates, and paper forward-test are
-complete and reviewed end to end.
+held-balance/product metadata checks, CI gates, agent-first research workflow,
+and paper forward-test are complete and reviewed end to end.
+
+## Workflow Correction - Agent-First Research
+
+The intended workflow is not "hard-coded analysis." The AI research agent must
+do market work first, then code-owned gates enforce safety and mechanics.
+
+Correct sequence:
+
+1. `research-and-plan` agent gathers market context, scores the rubric, writes
+   `memory/research-reports/*.json`, and appends `memory/RESEARCH-LOG.md`.
+2. `paper-trading` or `execute` reads only a fresh research report and refuses
+   new cycles when research is stale, missing, or non-actionable.
+3. Code gates validate hard rules: BTC-USD only, one active cycle, size caps,
+   cooldowns, reserve band, BTC R:R, idempotency, and paired order mechanics.
+
+Corrections started 2026-04-25:
+
+- [x] Added `scripts/research_gate.py` to validate fresh agent research reports
+  before downstream routines act on trade ideas.
+- [x] Required `scripts/paper_trade.py open-cycle` CLI calls to pass a fresh
+  research report gate with an actionable A/B trade idea.
+- [x] Update local/cloud automation instructions so paper shadow runs schedule
+  `research-and-plan` before `paper-trading`; never schedule the paper harness
+  alone as a trading decision maker.
+- [x] Add a small paper-shadow runner that performs quote tick + report gate +
+  optional paper open in one auditable command.
+- [x] Add a full report gate to live `cycle_orders.py` so live cycle opening
+  validates the research artifact itself, not only a fetched timestamp.
+- [x] Add a schema validator for `memory/research-reports/*.json` so agent
+  reports fail fast when required v2 fields are absent.
+- [x] Scope research collection to validated/already-paid sources plus
+  WebSearch. Do not add new paid API dependencies by default.
+- [x] Implement a bounded `research.sh collect` composer for the currently
+  callable sources: ChartInspect Pro, YouTube, and Coinbase quote.
 
 ## Completed Safety Pass
 
@@ -21,6 +55,18 @@ complete and reviewed end to end.
   `pyproject.toml`.
 - Added a two-week paper trading harness and paper-state lane for forward
   testing without live order placement.
+- Added a fresh research report gate and wired paper `open-cycle` CLI calls to
+  require an actionable agent research artifact before starting a paper cycle.
+- Added `scripts/paper_shadow.py` as the one-command local paper shadow runner:
+  quote tick, research gate, and optional paper open in one auditable JSON
+  result.
+- Wired live `scripts/cycle_orders.py open-cycle --live` to require
+  `--research-report`, so live cycle opening validates the report artifact and
+  not only a copied timestamp.
+- Expanded `scripts/research_gate.py` into a schema validator for v2 research
+  reports, including stale v1 trade idea field rejection.
+- Updated `scripts/research.sh collect` to call a bounded collector for
+  validated/already-paid sources and declare WebSearch-required gaps.
 - Added a tested live cycle-opening policy layer and wired execute workflows
   to call it before paired sell-trigger plus re-entry order placement.
 - Added a tested `scripts/cycle_orders.py open-cycle` transaction helper for
@@ -119,14 +165,17 @@ complete and reviewed end to end.
      `target`, `USD-swing`, `open position`, and old Coinbase org-path key
      examples.
 
-3. Build the research collector.
-   - Implement `research.sh collect`, or explicitly label the current system as
-     WebSearch-only shadow mode.
-   - Prioritize `fng.py`, `coingecko.py`, `defillama.py`, `candles.py`, and
-     `binance.py`.
-   - Make `candles.py` a blocker for technical-level trade ideas.
-   - Emit one JSON payload with source timestamps, missing slots, stale
-     warnings, and raw source snippets.
+3. Maintain the bounded research collector.
+   - Preserve the agent-first boundary: wrappers collect facts; the
+     research-and-plan agent still interprets, scores, and writes the report.
+   - Current accepted scope: ChartInspect Pro endpoints that were validated in
+     `research/RESEARCH-DATA-STATUS.md`, YouTube sentiment wrappers, Coinbase
+     quote, and AI WebSearch for all missing/unvalidated slots.
+   - Do not add new paid API dependencies unless explicitly approved.
+   - Future no-new-cost candidates can be validated one at a time, but they are
+     optional improvements, not blockers for paper forward-testing.
+   - Keep `scripts/research_collect.py` emitting one JSON payload with source
+     status, missing slots, and WebSearch-required gaps.
 
 4. Add CI and linting.
    - Run the current unit tests on every push.

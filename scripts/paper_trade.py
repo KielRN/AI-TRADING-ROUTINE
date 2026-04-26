@@ -14,6 +14,11 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 
+try:
+    from scripts.research_gate import validate_research_report
+except ImportError:  # pragma: no cover - direct script execution from scripts/
+    from research_gate import validate_research_report
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_STATE = ROOT / "memory" / "paper-trading" / "state.json"
 SCHEMA_VERSION = 1
@@ -561,6 +566,17 @@ def cmd_validate(args) -> None:
 
 
 def cmd_open_cycle(args) -> None:
+    opened_at = parse_utc(args.opened_at) if args.opened_at else utc_now()
+    research_gate = validate_research_report(
+        args.research_report,
+        now=opened_at,
+        max_age_minutes=dec(args.max_research_age_minutes),
+        require_trade_idea=True,
+    )
+    if not research_gate["ok"]:
+        print_json({"ok": False, "reason": "research_gate", "research": research_gate})
+        sys.exit(1)
+
     state = load_state(args.path)
     state = open_cycle(
         state,
@@ -572,10 +588,17 @@ def cmd_open_cycle(args) -> None:
         rebuy_limit_price=dec(args.rebuy_limit_price),
         worst_case_rebuy_price=dec(args.worst_case_rebuy_price),
         current_price=dec(args.current_price),
-        opened_at=parse_utc(args.opened_at) if args.opened_at else utc_now(),
+        opened_at=opened_at,
     )
     write_state(state, args.path)
-    print_json({"ok": True, "summary": summary(state), "active_cycle": state["active_cycle"]})
+    print_json(
+        {
+            "ok": True,
+            "research": research_gate,
+            "summary": summary(state),
+            "active_cycle": state["active_cycle"],
+        }
+    )
 
 
 def cmd_tick(args) -> None:
@@ -621,6 +644,8 @@ def main() -> None:
     p.add_argument("--rebuy-limit-price", required=True)
     p.add_argument("--worst-case-rebuy-price", required=True)
     p.add_argument("--current-price", required=True)
+    p.add_argument("--research-report", type=Path, required=True)
+    p.add_argument("--max-research-age-minutes", default="45")
     p.add_argument("--opened-at")
     p.set_defaults(func=cmd_open_cycle)
 

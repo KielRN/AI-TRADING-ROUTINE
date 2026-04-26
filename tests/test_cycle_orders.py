@@ -30,6 +30,40 @@ def base_state() -> dict:
     }
 
 
+def research_report() -> dict:
+    return {
+        "ts": "2026-04-25T11:30:00Z",
+        "bias": "hold",
+        "confidence": "medium",
+        "rubric": {
+            "catalyst": True,
+            "sentiment_extreme_or_divergence": True,
+            "onchain_or_structure": False,
+            "macro_aligned": True,
+            "technical_level": True,
+            "score": 4,
+            "grade": "B",
+        },
+        "numeric_context": {"btc_price_usd": 80000},
+        "trade_ideas": [
+            {
+                "grade": "B",
+                "playbook_setup": "catalyst_driven_breakdown",
+                "sell_trigger_price": "78000",
+                "rebuy_limit_price": "74000",
+                "worst_case_rebuy_price": "79500",
+                "btc_r_r": "2.67",
+            }
+        ],
+        "data_health": {
+            "fetched_at": "2026-04-25T11:30:00Z",
+            "missing_slots": [],
+            "websearch_gaps": [],
+            "stale_warnings": [],
+        },
+    }
+
+
 class FakeClient:
     def __init__(self, *, fail_rebuy: bool = False):
         self.fail_rebuy = fail_rebuy
@@ -196,7 +230,9 @@ class CycleOrdersTests(unittest.TestCase):
         fake = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "state.json"
+            report_path = Path(tmp) / "research.json"
             write_state_atomic(base_state(), state_path)
+            report_path.write_text(json.dumps(research_report()), encoding="utf-8")
             args = Namespace(
                 state=state_path,
                 cycle_id="cycle-test-1",
@@ -211,7 +247,9 @@ class CycleOrdersTests(unittest.TestCase):
                 current_price="80000",
                 usd_reserve_pct="15",
                 research_fetched_at="2026-04-25T11:30:00Z",
+                research_report=report_path,
                 max_research_age_hours="3",
+                max_research_age_minutes="45",
                 expected_usd=None,
                 stop_limit_price=None,
                 post_only=False,
@@ -240,6 +278,49 @@ class CycleOrdersTests(unittest.TestCase):
                 state["active_cycle_detail"]["sell_client_order_id"],
                 "cycle-test-1-sell-trigger",
             )
+
+    def test_cli_live_open_requires_research_report(self):
+        fake = FakeClient()
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            write_state_atomic(base_state(), state_path)
+            args = Namespace(
+                state=state_path,
+                cycle_id="cycle-test-1",
+                product="BTC-USD",
+                playbook_setup="catalyst_driven_breakdown",
+                btc_stack="1.00000000",
+                btc_equivalent_stack="1.00000000",
+                btc_to_sell="0.20000000",
+                sell_trigger_price="78000",
+                rebuy_limit_price="74000",
+                worst_case_rebuy_price="79500",
+                current_price="80000",
+                usd_reserve_pct="15",
+                research_fetched_at="2026-04-25T11:30:00Z",
+                research_report=None,
+                max_research_age_hours="3",
+                max_research_age_minutes="45",
+                expected_usd=None,
+                stop_limit_price=None,
+                post_only=False,
+                live=True,
+                simulate_rebuy_failure=False,
+                now="2026-04-25T12:00:00Z",
+                run_id="scheduled-run-1",
+                lock_file=Path(tmp) / "cycle-orders.lock",
+                no_lock=True,
+            )
+
+            stdout = io.StringIO()
+            with patch("scripts.cycle_orders.coinbase._client", return_value=fake):
+                with contextlib.redirect_stdout(stdout):
+                    code = cmd_open_cycle(args)
+
+            self.assertEqual(code, 1)
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["reason"], "research_report_required")
+            self.assertIsNone(fake.sell_kwargs)
 
     def test_routine_lock_blocks_second_writer(self):
         with tempfile.TemporaryDirectory() as tmp:

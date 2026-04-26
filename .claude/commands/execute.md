@@ -13,8 +13,9 @@ HOUR=$(date -u +%H)
 ORDER_MODE=--dry-run
 
 WRAPPER REQUIREMENTS (v2): paired cycle order opening is code-owned by
-`python scripts/cycle_orders.py open-cycle $ORDER_MODE ...`, which runs the
-policy gate, plans both orders, and exercises rollback behavior.
+`python scripts/cycle_orders.py open-cycle $ORDER_MODE ...`, which validates
+the research report artifact, runs the policy gate, plans both orders, and
+exercises rollback behavior.
 Order lifecycle checks use `python scripts/coinbase.py order <order_id>`
 and `python scripts/coinbase.py fills <order_id>`. If any required wrapper
 call fails, log the failure and exit WITHOUT leaving a half-cycle live.
@@ -26,6 +27,7 @@ STEP 1 — Read memory:
 - memory/TRADING-STRATEGY.md
 - memory/state.json (validate first: `python scripts/state.py`)
 - Latest memory/research-reports/*.json (must be dated within last 45 min).
+  Validate with `python scripts/research_gate.py latest --max-age-minutes 45`.
   If stale, log "research stale, skipping".
 - tail of memory/TRADE-LOG.md (cross-check cycle history / weekly count)
 - memory/PROJECT-CONTEXT.md (legacy mirror of DRAWDOWN_HALT, ACTIVE_CYCLE,
@@ -59,6 +61,8 @@ STEP 4 — Admin rebalance branch (pre-cycle):
 - Else fall through.
 
 STEP 5 — Cycle gate. ALL must pass (TRADING-STRATEGY §2 + §3):
+□ Latest research report passes:
+    python scripts/research_gate.py latest --max-age-minutes 45 --require-trade-idea
 □ Research trade_idea has grade A or B
 □ trade_idea.playbook_setup ∈ {catalyst_driven_breakdown,
     sentiment_extreme_greed_fade, funding_flip_divergence,
@@ -89,6 +93,7 @@ Announce every derived number.
 
 STEP 7 — CODE-OWNED paired placement (§2 rule 9):
   The helper below runs the code policy gate internally. Local mode is dry-run.
+  research_report     = latest memory/research-reports/$DATE-$HOUR.json.
   research_fetched_at = data_health.fetched_at if present, else report ts.
   usd_reserve_pct     = usd_balance / equity × 100.
   btc_equivalent_stack = btc_balance + (usd_balance / btc_price).
@@ -105,6 +110,7 @@ STEP 7 — CODE-OWNED paired placement (§2 rule 9):
     --worst-case-rebuy-price <worst_case_rebuy_price> \
     --current-price <current spot bid> \
     --usd-reserve-pct <usd_reserve_pct> \
+    --research-report memory/research-reports/$DATE-$HOUR.json \
     --research-fetched-at <research_fetched_at> \
     --expected-usd <expected_usd>
 
