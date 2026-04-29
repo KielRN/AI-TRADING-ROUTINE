@@ -4,6 +4,11 @@ This guide explains the environment that each Claude Code cloud routine runs
 inside, why a setup script is required, and exactly what to paste into the
 Claude Code Routines UI for the two routines this project uses.
 
+For the wider strategy context, repository layout, and historical design
+notes, see [Opus 4.7 Trading Bot — Setup Guide](Opus%204.7%20Trading%20Bot%20%E2%80%94%20Setup%20Guide.md).
+This file is the canonical reference for the cloud routine environment
+itself.
+
 ## Why A Setup Script Is Needed
 
 Every cloud routine run starts a fresh sandbox with an empty working

@@ -562,31 +562,54 @@ it's not in main, it didn't happen.
 
 Do these once before creating any routine.
 
-#### Prereq 1 — Install the Claude GitHub App
+#### Prereq 1 — Generate a fine-grained GitHub Personal Access Token
 
-Visit the Claude GitHub App install page, select only your trading bot
-repo (least privilege), and grant access. This gives the cloud container
-permission to both clone and push to your repo.
+The cloud routine clones the repo at the start of every run and pushes
+memory updates at the end. It authenticates with a fine-grained GitHub
+PAT, scoped to this single repo.
 
-#### Prereq 2 — Enable unrestricted branch pushes on the routine's environment
+GitHub → **Settings → Developer settings → Personal access tokens →
+Fine-grained tokens → Generate new token**:
 
-In the routine's environment settings, toggle on **"Allow unrestricted
-branch pushes"**. Without this, `git push origin main` silently fails with
-a proxy error. **This is the number-one reason first-time setups break.**
+- Resource owner: your account.
+- Repository access: *Only select repositories* → this trading bot repo.
+- Repository permissions: `Contents: Read and write`, `Metadata: Read`.
+  Leave everything else at "No access".
+- Set an expiration and calendar a renewal.
+
+The token will be stored as `GITHUB_TOKEN` in the routine's environment
+(see Prereq 3). See [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) for
+the matching setup script that uses this token to clone and push.
+
+#### Prereq 2 — Configure the routine's setup script
+
+Each cloud routine starts in a fresh sandbox. The setup script must clone
+the repo with the PAT before any wrapper call can run. Paste the script
+from [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) into the routine's
+**Setup script** field. It clones (or refreshes) `main`, configures the
+git identity, sets a tokenized push URL, and installs `requirements.txt`.
+
+Without this, the routine's working directory stays empty and every
+wrapper call fails with `No such file or directory`. **This is the
+number-one reason first-time setups break.**
 
 #### Prereq 3 — Set environment variables on the routine (NOT in a `.env` file)
 
 In the routine's environment config, add:
 
 ```
-COINBASE_API_KEY          (required — CDP API key, format "organizations/.../apiKeys/...")
-COINBASE_API_SECRET       (required — EC private key PEM, entire string including BEGIN/END lines)
+GITHUB_TOKEN              (required — fine-grained PAT from Prereq 1)
+COINBASE_API_KEY          (required — CDP Ed25519 key id, UUID format)
+COINBASE_API_SECRET       (required — base64 Ed25519 private key, not PEM)
 TELEGRAM_BOT_TOKEN        (required — from @BotFather, format "123456789:ABC...")
 ALLOWED_CHAT_IDS          (required — single chat ID or comma-separated IDs)
 ```
 
-No PERPLEXITY_* vars (v1 doesn't use Perplexity). No research-backend vars
-until v2 ships.
+While the campaign is in paper mode, the Coinbase key should be
+**view-only**. Upgrade to a read/write CDP key only when live cycle
+opening is enabled. No PERPLEXITY_* vars (v1 doesn't use Perplexity).
+Optional research-backend vars (`CHARTINSPECT_API_KEY`, `YOUTUBE_API_KEY`,
+`FRED_API_KEY`) fall back to WebSearch when missing.
 
 #### Prereq 4 — Create the dedicated Telegram bot
 
@@ -630,19 +653,20 @@ Walk-through using `research-and-plan` as the example. Repeat for each of
 the six.
 
 1. In Claude Code cloud, go to **Routines → New Routine**.
-2. Name the routine, for example "BTC bot — research-and-plan".
-3. Select your repository (requires the GitHub App from Prereq 1).
-4. Select branch: `main`.
-5. Add all environment variables from Prereq 3.
-6. Toggle on **"Allow unrestricted branch pushes"** (Prereq 2).
-7. Set the cron schedule and timezone UTC. For research-and-plan:
+2. Name the routine, for example "BTC paper - research-and-plan".
+3. Add all environment variables from Prereq 3, including `GITHUB_TOKEN`.
+4. Paste the setup script from
+   [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) into the **Setup
+   script** field. The script handles repo clone, identity, and `pip
+   install -r requirements.txt`.
+5. Set the cron schedule and timezone UTC. For research-and-plan:
    `0 0,12 * * *` (00:00 and 12:00 UTC daily).
-8. Paste the prompt from `routines/research-and-plan.md` into the prompt
+6. Paste the prompt from `routines/research-and-plan.md` into the prompt
    field. Copy everything inside the code block. **Paste verbatim — do not
    paraphrase.**
-9. Save.
-10. Click **"Run now"** once to test. Do not wait for the next scheduled
-    firing to discover it's broken.
+7. Save.
+8. Click **"Run now"** once to test. Do not wait for the next scheduled
+   firing to discover it's broken.
 
 ### The six cron schedules (UTC)
 
@@ -725,8 +749,8 @@ Every problem you're likely to hit on day one, and the fix.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| "Repository not accessible" / clone fails | Claude GitHub App not installed | Install it, grant access to this specific repo |
-| `git push` fails with proxy/permission error | "Allow unrestricted branch pushes" toggle is off | Enable it in the routine's environment |
+| Clone fails / setup script exits with `Could not open requirements file: requirements.txt` | `GITHUB_TOKEN` missing or invalid; setup script ran in an empty working dir | Verify `GITHUB_TOKEN` is set in the routine env and that the PAT has not expired. See [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) |
+| `git push` fails with `Authentication failed for ...github.com` | `GITHUB_TOKEN` expired, revoked, or scoped to the wrong repo | Regenerate a fine-grained PAT with `Contents: Read and write` on this repo only |
 | `COINBASE_API_KEY not set` | Env var missing from routine env | Add it in the routine config, not the repo's `.env` |
 | `invalid_grant` or JWT signature errors | Private key formatting (newlines mangled, missing BEGIN/END) | Paste the full PEM including header/footer lines, preserving `\n` |
 | Coinbase returns `PRODUCT_NOT_FOUND` | Wrong product ID | Must be `BTC-USD`, not `BTCUSD` or `BTC-USDT` |
@@ -765,7 +789,8 @@ Steps to stand up your own instance, in order.
 - [ ] **Local smoke test:** copy `env.template` to `.env`, fill in
       credentials, open repo in Claude Code, run `/portfolio`. You should
       see account + position + BTC quote print cleanly.
-- [ ] Install the Claude GitHub App on your repo.
+- [ ] Generate a fine-grained GitHub PAT scoped to this repo only
+      (Prereq 1). Save it as `GITHUB_TOKEN` in the routine env.
 - [ ] Create the first cloud routine (`research-and-plan`) per Part 7.
 - [ ] Hit "Run now" and watch the logs. Verify research report JSON written,
       research log entry appended, committed, pushed.
