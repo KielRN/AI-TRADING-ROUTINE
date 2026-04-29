@@ -76,6 +76,18 @@ workflow.
 
 Never call Coinbase or Telegram APIs directly.
 
+## Repo Conventions
+
+- **One branch only: `main`.** Never create another branch (no feature
+  branches, no `codex/...`, no `experiment/...`, no detached work). If you
+  believe a branch is genuinely necessary, **stop and ask the user first.**
+- Cloud routines clone and push `main`. Anything not on `main` is invisible
+  to the bot.
+- Commit and push every memory mutation in the same run that produced it.
+  Fresh-clone routines will lose uncommitted work.
+- Never force-push. On push failure, `git pull --rebase origin main` then
+  push again.
+
 ## Communication Style
 
 Ultra concise. No preamble. Short bullets. Match existing memory file
