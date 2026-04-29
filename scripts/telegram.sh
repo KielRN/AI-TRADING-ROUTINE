@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Notification wrapper. Posts to a dedicated Telegram bot (NOT the TxAI
-# inbound assistant). Sends to all IDs in ALLOWED_CHAT_IDS (comma-separated).
-# If credentials are unset, appends to a local fallback file.
+# Notification wrapper. Prefer the shared TxAI Telegram Railway service when
+# TELEGRAM_SERVICE_URL and TELEGRAM_SERVICE_API_KEY are configured. Otherwise,
+# post directly to Telegram using TELEGRAM_BOT_TOKEN + ALLOWED_CHAT_IDS. If
+# credentials are unset, append to a local fallback file.
 #
 # Usage: bash scripts/telegram.sh "<message>"
 
@@ -29,6 +30,21 @@ if [[ -z "${msg// /}" ]]; then
 fi
 
 stamp="$(date -u '+%Y-%m-%d %H:%M UTC')"
+
+if [[ -n "${TELEGRAM_SERVICE_URL:-}" && -n "${TELEGRAM_SERVICE_API_KEY:-}" ]]; then
+    if [[ ${#msg} -gt 4000 ]]; then
+        msg="${msg:0:3990}â€¦"
+    fi
+    payload="$(MSG="$msg" python -c 'import json, os; print(json.dumps({"text": os.environ["MSG"]}))')"
+    if curl -fsS -X POST "${TELEGRAM_SERVICE_URL%/}/notify" \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${TELEGRAM_SERVICE_API_KEY}" \
+        --data "$payload"; then
+        echo
+        exit 0
+    fi
+    echo "[telegram warning] Railway notify failed; falling back to direct Telegram API" >&2
+fi
 
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOWED_CHAT_IDS:-}" ]]; then
     printf "\n---\n## %s (fallback — Telegram not configured)\n%s\n" "$stamp" "$msg" >> "$FALLBACK"

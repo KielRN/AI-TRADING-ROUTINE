@@ -7,6 +7,9 @@ DATE=$(date -u +%Y-%m-%d)
 IMPORTANT — ENVIRONMENT VARIABLES:
 - Every API key is ALREADY exported: COINBASE_API_KEY, COINBASE_API_SECRET,
   TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_IDS.
+- If TELEGRAM_SERVICE_URL and TELEGRAM_SERVICE_API_KEY are exported,
+  scripts/telegram.sh will send through the shared Railway Telegram service.
+  Otherwise it falls back to TELEGRAM_BOT_TOKEN + ALLOWED_CHAT_IDS directly.
 - There is NO .env file in this repo and you MUST NOT create, write, or source one.
 - If a wrapper prints "KEY not set in environment" → STOP, send one Telegram
   alert naming the missing var, and exit.
@@ -56,14 +59,14 @@ STEP 4 — Append EOD snapshot to memory/TRADE-LOG.md:
 **Steady-state check:** USD reserve X.X% (target 10–20%) [OK | OUT-OF-SPEC]
 **Notes:** one-paragraph plain-english summary of the day in sats terms.
 
-STEP 5 — Send ONE Telegram message (always, even on no-cycle days), ≤15 lines:
-bash scripts/telegram.sh "EOD $DATE
-Stack: N.NNNNNNNN BTC (±N.NNNNNNNN 24h, ±X.XX% quarter vs HODL 0%)
-USD reserve: \$X (X.X%)
-Cycles today: opened N, closed W/L/flat
+STEP 5 — Send ONE very simple Telegram message (always, even on no-cycle days), ≤8 lines:
+bash scripts/telegram.sh "BTC daily $DATE
+Stack: N.NNNNNNNN BTC
+24h: ±N.NNNNNNNN BTC (±X.XX%)
+Reserve: \$X (X.X%)
+Cycles: opened N, closed W/L/flat
 Active: [none | Phase X, cap <UTC>]
-Rolling 7d opened: N/2
-Tomorrow: <one-line bias from latest research or HOLD>"
+Tomorrow: <HOLD | watch \$X | manage active cycle>"
 
 STEP 6 — COMMIT AND PUSH (mandatory):
     git add memory/TRADE-LOG.md

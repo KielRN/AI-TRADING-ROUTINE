@@ -39,13 +39,13 @@ STEP 4 — Append EOD snapshot to memory/TRADE-LOG.md:
 **Steady-state check:** USD reserve X.X% (target 10–20%) [OK | OUT-OF-SPEC]
 **Notes:** one-paragraph plain-english summary in sats terms.
 
-STEP 5 — Send ONE Telegram message:
-bash scripts/telegram.sh "EOD $DATE
-Stack: N.NNNNNNNN BTC (±N.NNNNNNNN 24h, ±X.XX% quarter vs HODL 0%)
-USD reserve: \$X (X.X%)
-Cycles today: opened N, closed W/L/flat
+STEP 5 — Send ONE very simple Telegram message:
+bash scripts/telegram.sh "BTC daily $DATE
+Stack: N.NNNNNNNN BTC
+24h: ±N.NNNNNNNN BTC (±X.XX%)
+Reserve: \$X (X.X%)
+Cycles: opened N, closed W/L/flat
 Active: [none | Phase X, cap <UTC>]
-Rolling 7d opened: N/2
-Tomorrow: <one-line bias from latest research or HOLD>"
+Tomorrow: <HOLD | watch \$X | manage active cycle>"
 
 NOTE: Local run — no commit or push.
