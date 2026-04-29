@@ -544,11 +544,15 @@ container: clone, run, destroy.
 
 1. The cron fires in UTC (set on the routine).
 2. Claude's cloud spins up a new container.
-3. It clones your GitHub repo at main, so it sees the latest memory.
-4. It installs Python deps from `requirements.txt` (first run of a fresh
-   container).
-5. It injects the environment variables you configured on the routine into
-   the shell.
+3. The routine's setup script runs in a pristine working directory and
+   installs Python deps by explicit name (see
+   [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md); `requirements.txt`
+   is not yet visible at this stage).
+4. The harness clones your GitHub repo to a per-run sandbox branch
+   (`claude/<name>`) via the Claude GitHub App, so the agent sees the
+   latest `main`.
+5. It injects the environment variables you configured on the routine
+   into the agent's shell (these are not exposed to the setup script).
 6. It starts Claude with the prompt you pasted into the routine.
 7. Claude does the work: reads memory, calls wrappers, writes memory.
 8. Claude **must run `git commit` and `git push origin main` before
@@ -562,35 +566,29 @@ it's not in main, it didn't happen.
 
 Do these once before creating any routine.
 
-#### Prereq 1 — Generate a fine-grained GitHub Personal Access Token
+#### Prereq 1 — Install the Claude GitHub App
 
-The cloud routine clones the repo at the start of every run and pushes
-memory updates at the end. It authenticates with a fine-grained GitHub
-PAT, scoped to this single repo.
+The cloud routine harness clones the repo at the start of every run and
+pushes memory updates at the end. Both operations go through an
+authenticating proxy in the sandbox that is keyed to the **Claude GitHub
+App**. Without it installed on the repo, the harness can neither clone
+nor push, and every routine run fails before the prompt even starts.
 
-GitHub → **Settings → Developer settings → Personal access tokens →
-Fine-grained tokens → Generate new token**:
+Visit the Claude GitHub App install page (linked from the Claude Code
+Routines UI when you create your first routine), select **only this
+trading bot repo** (least privilege), and grant access. PATs alone are
+not sufficient — the sandbox proxy ignores token-based auth in URLs.
 
-- Resource owner: your account.
-- Repository access: *Only select repositories* → this trading bot repo.
-- Repository permissions: `Contents: Read and write`, `Metadata: Read`.
-  Leave everything else at "No access".
-- Set an expiration and calendar a renewal.
+#### Prereq 2 — Enable unrestricted branch pushes on the routine's environment
 
-The token will be stored as `GITHUB_TOKEN` in the routine's environment
-(see Prereq 3). See [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) for
-the matching setup script that uses this token to clone and push.
+By default the harness only authorises pushes to its per-run sandbox
+branch (`claude/<name>`). To let the routine push memory updates back to
+`main`, toggle on **"Allow unrestricted branch pushes"** in each
+routine's environment settings.
 
-#### Prereq 2 — Configure the routine's setup script
-
-Each cloud routine starts in a fresh sandbox. The setup script must clone
-the repo with the PAT before any wrapper call can run. Paste the script
-from [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) into the routine's
-**Setup script** field. It clones (or refreshes) `main`, configures the
-git identity, sets a tokenized push URL, and installs `requirements.txt`.
-
-Without this, the routine's working directory stays empty and every
-wrapper call fails with `No such file or directory`. **This is the
+Without this, `git push origin main` returns `403 Permission denied` from
+the proxy, the routine's STEP 8 / STEP 9 commit silently never reaches
+GitHub, and the next fresh-clone run loses everything. **This is the
 number-one reason first-time setups break.**
 
 #### Prereq 3 — Set environment variables on the routine (NOT in a `.env` file)
@@ -598,7 +596,6 @@ number-one reason first-time setups break.**
 In the routine's environment config, add:
 
 ```
-GITHUB_TOKEN              (required — fine-grained PAT from Prereq 1)
 COINBASE_API_KEY          (required — CDP Ed25519 key id, UUID format)
 COINBASE_API_SECRET       (required — base64 Ed25519 private key, not PEM)
 TELEGRAM_BOT_TOKEN        (required — from @BotFather, format "123456789:ABC...")
@@ -609,7 +606,10 @@ While the campaign is in paper mode, the Coinbase key should be
 **view-only**. Upgrade to a read/write CDP key only when live cycle
 opening is enabled. No PERPLEXITY_* vars (v1 doesn't use Perplexity).
 Optional research-backend vars (`CHARTINSPECT_API_KEY`, `YOUTUBE_API_KEY`,
-`FRED_API_KEY`) fall back to WebSearch when missing.
+`FRED_API_KEY`) fall back to WebSearch when missing. `GITHUB_TOKEN` is
+**not** required — the App handles all git auth. See
+[CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) for the matching pip
+setup script.
 
 #### Prereq 4 — Create the dedicated Telegram bot
 
@@ -654,19 +654,23 @@ the six.
 
 1. In Claude Code cloud, go to **Routines → New Routine**.
 2. Name the routine, for example "BTC paper - research-and-plan".
-3. Add all environment variables from Prereq 3, including `GITHUB_TOKEN`.
-4. Paste the setup script from
+3. Select your repository (requires the Claude GitHub App from Prereq 1).
+4. Select branch: `main`.
+5. Add all environment variables from Prereq 3.
+6. Toggle on **"Allow unrestricted branch pushes"** (Prereq 2).
+7. Paste the pip setup script from
    [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) into the **Setup
-   script** field. The script handles repo clone, identity, and `pip
-   install -r requirements.txt`.
-5. Set the cron schedule and timezone UTC. For research-and-plan:
+   script** field. It installs Python deps by name with
+   `--ignore-installed` (the script runs *before* the harness clones, so
+   `requirements.txt` is not visible).
+8. Set the cron schedule and timezone UTC. For research-and-plan:
    `0 0,12 * * *` (00:00 and 12:00 UTC daily).
-6. Paste the prompt from `routines/research-and-plan.md` into the prompt
-   field. Copy everything inside the code block. **Paste verbatim — do not
-   paraphrase.**
-7. Save.
-8. Click **"Run now"** once to test. Do not wait for the next scheduled
-   firing to discover it's broken.
+9. Paste the prompt from `routines/research-and-plan.md` into the prompt
+   field. Copy everything inside the code block. **Paste verbatim — do
+   not paraphrase.**
+10. Save.
+11. Click **"Run now"** once to test. Do not wait for the next scheduled
+    firing to discover it's broken.
 
 ### The six cron schedules (UTC)
 
@@ -749,8 +753,11 @@ Every problem you're likely to hit on day one, and the fix.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Clone fails / setup script exits with `Could not open requirements file: requirements.txt` | `GITHUB_TOKEN` missing or invalid; setup script ran in an empty working dir | Verify `GITHUB_TOKEN` is set in the routine env and that the PAT has not expired. See [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) |
-| `git push` fails with `Authentication failed for ...github.com` | `GITHUB_TOKEN` expired, revoked, or scoped to the wrong repo | Regenerate a fine-grained PAT with `Contents: Read and write` on this repo only |
+| Setup script exits with `GITHUB_TOKEN: unbound variable` (or any user secret unbound) | Setup script env doesn't expose user secrets | Use the explicit-deps `pip install` from [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md). Don't reference user secrets in the setup script |
+| Setup script exits with `Could not open requirements file: requirements.txt` | Setup script runs before the harness clones; `requirements.txt` does not exist yet | Replace `pip install -r requirements.txt` with explicit dep names. See [CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md) |
+| Setup script exits with `Cannot uninstall <pkg>, RECORD file not found. Hint: The package was installed by debian.` | Sandbox base image has Debian-installed Python packages without pip RECORD files | Add `--ignore-installed` to the pip command so it skips the uninstall and lays fresh copies in user site-packages |
+| Agent can't read repo files / `scripts/coinbase.py: No such file or directory` | Claude GitHub App not installed; harness can't clone for the agent either | Install the App on this repo only (Prereq 1) |
+| `git push` fails with `403 Permission denied` / `WWW-Authenticate: Basic realm="Git Proxy"` | "Allow unrestricted branch pushes" toggle is off in the routine env | Enable it (Prereq 2). The agent can push to `claude/<sandbox>` branches without it but cannot reach `main` |
 | `COINBASE_API_KEY not set` | Env var missing from routine env | Add it in the routine config, not the repo's `.env` |
 | `invalid_grant` or JWT signature errors | Private key formatting (newlines mangled, missing BEGIN/END) | Paste the full PEM including header/footer lines, preserving `\n` |
 | Coinbase returns `PRODUCT_NOT_FOUND` | Wrong product ID | Must be `BTC-USD`, not `BTCUSD` or `BTC-USDT` |
@@ -789,8 +796,9 @@ Steps to stand up your own instance, in order.
 - [ ] **Local smoke test:** copy `env.template` to `.env`, fill in
       credentials, open repo in Claude Code, run `/portfolio`. You should
       see account + position + BTC quote print cleanly.
-- [ ] Generate a fine-grained GitHub PAT scoped to this repo only
-      (Prereq 1). Save it as `GITHUB_TOKEN` in the routine env.
+- [ ] Install the Claude GitHub App on this repo only (Prereq 1).
+- [ ] Toggle "Allow unrestricted branch pushes" on each routine env
+      (Prereq 2).
 - [ ] Create the first cloud routine (`research-and-plan`) per Part 7.
 - [ ] Hit "Run now" and watch the logs. Verify research report JSON written,
       research log entry appended, committed, pushed.
@@ -1183,7 +1191,15 @@ if __name__ == "__main__":
 coinbase-advanced-py>=1.8.0
 httpx>=0.27.0
 python-dotenv>=1.0.0
+requests>=2.31.0
+PyJWT>=2.8.0
+cryptography>=42.0.0
 ```
+
+The cloud routine setup script installs these by explicit name (since
+`requirements.txt` isn't visible to the setup script — see
+[CLOUD-ROUTINE-SETUP.md](CLOUD-ROUTINE-SETUP.md)). Local development can
+still use `pip install -r requirements.txt`.
 
 ---
 
